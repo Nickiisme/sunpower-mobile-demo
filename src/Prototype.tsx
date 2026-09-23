@@ -1,9 +1,9 @@
 import { useMemo, useState } from "react";
 import { ArchiveIcon, BackpackIcon, CalendarIcon, CheckCircledIcon, ChevronDownIcon, ChevronRightIcon, Cross2Icon, ExclamationTriangleIcon, FileTextIcon, GearIcon, HomeIcon, LightningBoltIcon, MagnifyingGlassIcon, MinusIcon, PersonIcon, PlusIcon, RocketIcon, SewingPinIcon } from "@radix-ui/react-icons";
 import { KeyboardInput as MobileTextField, MobileScroll, useKeyboard, useKeyboardInsets } from "./mobile";
-import module515 from "../../product-tab-assets/module-515.png";
-import module500 from "../../product-tab-assets/module-500.png";
-import reserveKit from "../../product-tab-assets/reserve-kit.png";
+import module515 from "./assets/module-515.png";
+import module500 from "./assets/module-500.png";
+import reserveKit from "./assets/reserve-kit.png";
 
 type Tab = "home" | "warranty" | "leads" | "products" | "fieldops";
 const tabs: { id: Tab; label: string; icon: React.ComponentType }[] = [
