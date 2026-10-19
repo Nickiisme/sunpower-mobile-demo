@@ -28,7 +28,7 @@ jobs:
         run: |
           npx tsc
           npx vite build --base=/sunpower-mobile-demo/
-          find dist/client/assets -name '*.js' -exec sed -i 's#"/assets/#"/sunpower-mobile-demo/assets/#g' {} +
+          find dist/client/assets -name '*.js' -exec sed -i 's#"/assets/#"/sunpower-mobile-demo/assets/#g; s#`/assets/#`/sunpower-mobile-demo/assets/#g' {} +
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
