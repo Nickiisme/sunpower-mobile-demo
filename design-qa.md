@@ -58,4 +58,41 @@ No actionable P0/P1/P2 differences remain. The change from desktop grids/tables 
 - Browser console checked after both modes and keyboard-to-navigation transition: no errors or warnings.
 - Update result: no actionable P0/P1/P2 differences remain.
 
+## Register Warranty integration update
+
+- Additional source visual truth: `/var/folders/97/_xk916z5461gmldt5xzpfsg00000gn/T/codex-clipboard-d2de8363-03cd-4dc7-9665-81178e1e0091.png`.
+- Implementation screenshot: `implementation-register-warranty.png`.
+- Combined comparison: `qa-comparison-register-warranty.png`.
+- The desktop drawer was intentionally converted into a three-section mobile form: Installation Information, Homeowner Information, and Lead Information.
+- Required fields, quantity controls, product auto-fill treatment, consent, draft save, and homeowner-send actions match the source workflow.
+- Mobile layout uses one-column fields with paired compact fields only where adequate width remains; the form scrolls through the existing mobile runtime.
+- Save-as-draft success, consent-dependent send enablement, back navigation, and keyboard-aware text entry were tested.
+- Runtime integrity, TypeScript compile, production build, and browser console checks passed with no errors or warnings.
+- Update result: no actionable P0/P1/P2 differences remain.
+
+## Home news integration update
+
+- Added a `Latest news` section that follows the source portal's home-page hierarchy and adapts it to the mobile card system.
+- The lead story includes a branded visual, category, date, headline, summary, and explicit read affordance.
+- `View all` expands a second product-update story in place; both stories expose selected/open feedback.
+- Verified the collapsed and expanded states in the iPhone preview. The fixed bottom navigation remains usable and does not obscure the active news content after scrolling.
+- Mobile runtime integrity, TypeScript compile, and production build passed.
+- Update result: no actionable P0/P1/P2 differences remain.
+
+## Tier metrics legibility update
+
+- Increased contrast for the tier subtitle, progress labels, percentage, and all three summary metrics.
+- Enlarged and strengthened the primary metric values while keeping supporting labels visually secondary.
+- Added subtle vertical separators between Installed, Kits, and Review for faster scanning.
+- Verified the updated tier card in the iPhone preview; all values remain visible without wrapping or clipping.
+- Runtime integrity, TypeScript compile, and production build passed.
+
+## Product purchase history update
+
+- Added equal-priority `Purchase history` and `Request cart` entry cards at the top of Products.
+- Added a dedicated mobile order-history view with order count, cumulative purchase value, order number, date, status, item summary, and total.
+- Added an All/Delivered status filter and a return path to the product catalog.
+- Verified entry navigation, filtering, return navigation, and persistent bottom-tab behavior in the iPhone preview.
+- Runtime integrity, TypeScript compile, and production build passed.
+
 final result: passed
