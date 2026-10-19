@@ -4,7 +4,6 @@ import { KeyboardInput as MobileTextField, MobileScroll, useKeyboard, useKeyboar
 import module515 from "./assets/module-515.png";
 import module500 from "./assets/module-500.png";
 import reserveKit from "./assets/reserve-kit.png";
-import newsArtwork from "../../sunpower-products-hero-art.png";
 
 type Tab = "home" | "warranty" | "leads" | "products" | "fieldops";
 const tabs: { id: Tab; label: string; icon: React.ComponentType }[] = [
@@ -23,7 +22,7 @@ function HomeScreen({ go }: { go: (t: Tab) => void }) {
     <div className="section-row"><h3 className="section-title">Upcoming</h3><button className="text-btn">View all</button></div><article className="event-card"><div className="date"><b>18</b><span>JUN</span></div><div><b>Partner Growth Workshop</b><p><CalendarIcon /> Online · 10:00 AM</p></div><ChevronRightIcon /></article>
     <div className="section-row news-heading"><h3 className="section-title">Latest news</h3><button className="text-btn" onClick={() => setShowAllNews(!showAllNews)}>{showAllNews ? "Show less" : "View all"}</button></div>
     <button className={`news-card ${selectedNews === "case-study" ? "selected" : ""}`} onClick={() => setSelectedNews(selectedNews === "case-study" ? null : "case-study")}>
-      <img src={newsArtwork} alt="SunPower product guide and solar module" />
+      <img src={module515} alt="SunPower Performance 7 solar module" />
       <span className="news-copy"><span className="news-meta"><em>Latest news</em><time>21 Jul 2026</time></span><b>A winning match for sustainability</b><small>See how high-performance solar helps partners deliver more value.</small><span className="news-link">Read story <ChevronRightIcon /></span></span>
     </button>
     {showAllNews && <button className={`news-compact ${selectedNews === "product" ? "selected" : ""}`} onClick={() => setSelectedNews(selectedNews === "product" ? null : "product")}><span className="news-icon"><LightningBoltIcon /></span><span><em>Product update</em><b>New Performance 7 resources are ready</b><small>18 Jul 2026 · 3 min read</small></span><ChevronRightIcon /></button>}
