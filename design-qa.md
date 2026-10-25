@@ -1,98 +1,74 @@
-# Design QA
+# SunPower portal mobile restoration QA
 
-- Source visual truth: `/var/folders/97/_xk916z5461gmldt5xzpfsg00000gn/T/codex-clipboard-6b83c9af-78af-4706-93db-ac19b8a359ea.png` plus the three related Warranty, Lead, and Products references supplied in the same request.
-- Implementation screenshots: `implementation-home.png`, `implementation-products.png`
-- Combined comparison: `qa-comparison.png`
-- Browser viewport: 1400 × 1200; iPhone app screen verified at 393 × 852 CSS px, device scale factor 1.
-- Source pixels: 3840 × 1984 desktop web reference. Implementation pixels: 393 × 852 mobile screen capture. The comparison intentionally evaluates responsive adaptation, not pixel-identical desktop geometry.
-- State: signed-in partner home; products state also captured with one pallet added.
+final result: passed
 
-## Full-view comparison evidence
+Scope: visual fidelity to the supplied mobile demo and usability of the local preview flows. This result does not certify production API integration or full live portal parity. See README.md for each service boundary.
 
-The mobile adaptation preserves the source product's white/light-gray surface balance, deep cobalt primary color, rounded white cards, bold dark headings, compact gray metadata, partner tier, warranty/lead/product information architecture, and status color semantics. The desktop multi-column dashboard is intentionally reorganized into a single-column, thumb-friendly mobile hierarchy with fixed bottom navigation.
+Full desktop captures stay local. Only cropped app-screen images and combined comparisons are included in the repository.
 
-## Focused region comparison evidence
+## Source and implementation evidence
 
-- Tier card: Authorized status, progress, kW/kits/review metrics and cobalt emphasis remain visible above the fold.
-- Navigation: desktop top navigation is translated into four persistent mobile destinations with a cart count badge.
-- Product cards: real SunPower product assets are used; model, capacity, availability and add-to-cart affordances remain legible.
-- Status lists: warranty and lead states retain distinct semantic pills and compact metadata.
+- Visual source: https://nickiisme.github.io/sunpower-mobile-demo/
+- Functional source: signed-in Partner Portal, inspected on 25 October 2026 (Home, Warranty and registration, Lead, Marketing/resource catalog, Live training, Academy, Monitoring and Products/detail; user management).
+- Source screenshot: `evidence/source-home.png`.
+- Implementation screenshot: `evidence/implementation-home.png`.
+- Combined full-view evidence: `evidence/home-comparison.png`.
+- Combined focused evidence: `evidence/home-focus-comparison.png`.
+- Additional rendered states: `evidence/implementation-android.png`, `evidence/implementation-marketing.png`, `evidence/implementation-training.png`.
+- Desktop native screenshots: 2786 × 1618 physical pixels. Browser/native UI and surrounding phone stage are excluded from comparisons. Identical iPhone screen crops (1119,303 to 1667,1490), 548 × 1187 pixels, are normalized to the original runtime's 393 × 852 app-screen coordinate space. Native window captures are scaled device previews; no claim of a DOM-measured unscaled element screenshot is made. Source and app were viewed in the same Chrome window and device preset. Pixel 10 retains the protected 427 × 952 coordinate space and Android navigation area.
+- Compared state: home, closed keyboard, first scroll position, light appearance. Current device time and the additional message button differ intentionally. The app's new benefits/certification controls and resource hub intentionally change content below the existing tier card. The final pending-lead count is computed from the local data rather than hardcoded to 3.
 
 ## Required fidelity surfaces
 
-- Fonts and typography: Roboto provides a close geometric sans match with clear 28 px page hierarchy, compact card labels, and no observed clipping.
-- Spacing and rhythm: 16 px page gutters, 9–13 px list gaps, 15–20 px card radii, and consistent section spacing produce an appropriate mobile density.
-- Colors and tokens: cobalt `#1236d1`, off-white `#f5f7fa`, dark ink and muted gray accurately carry the source visual language; semantic green/yellow/blue states remain distinct.
-- Image quality: source product imagery is imported directly and rendered with contained scaling; no placeholder imagery or improvised illustration is used.
-- Copy and content: mobile copy preserves the partner overview, warranty registrations, lead inbox, products, stock and request-cart concepts from the references.
+- Typography: existing Roboto assets/weights retained. Combined focused image confirms equivalent greeting size/wrapping, brand proportions, tier title, progress label and metric hierarchy. Sheet typography explicitly uses the same app font.
+- Layout: header and hero match the source's placement, padding, rounded card, progress spacing and three-column metric rhythm. Quick actions use the original component styling. New resource rows reuse the same borders, icon badges and card spacing. Fixed titles remain visible while lists scroll.
+- Tokens: original blue gradient, white surfaces, pale background, muted labels, borders, shadows and semantic status colors retained. Emergency status has a distinct red treatment. Footer safe area is opaque and clears the home indicator.
+- Assets: original repository fonts, device/status/keyboard assets, Radix icons and product-reference PNGs retained locally. No source asset hotlinks added. Product-family reference images are samples; exact SKU photography for the expanded catalog remains a follow-up.
+- Content: observed portal labels, product models, pack sizes, resource titles, news and event names are mapped into the mobile app. Counts follow local records. Local actions explain that they do not send real emails or production requests. External learning, monitoring and official documentation preserve authenticated live entrances.
 
-## Findings
+## Comparison and repair history
 
-No actionable P0/P1/P2 differences remain. The change from desktop grids/tables to cards and bottom navigation is an intentional mobile-platform adaptation.
+1. [P1, fixed] A fixed header covered the beginning of the hero because MobileScroll's default absolute positioning placed its viewport under the header. App-owned `.app-screen` is now a relative flex child below the fixed header; protected runtime files were untouched. The recaptured focused and full comparisons show the complete tier card in the correct position.
+2. [P2, fixed] The footer initially counted the iOS bottom inset twice and could cover the home-indicator region. The nav now has its own 60px content area, follows runtime bottomInset, fills the closed-keyboard safe area, and stays below protected device chrome. iPhone and Pixel were recaptured and checked.
+3. [P2, fixed] Saving a sheet form could leave the simulated keyboard open. AppSheet dismisses the keyboard on close, including controlled programmatic closes. Navigation also dismisses it. No runtime component was modified.
+4. [P3, fixed] Browser console reported only a missing favicon. Added a favicon derived from the local source product asset. Reloaded and checked the Console again: React development information and browser-extension information, no application exception or missing asset error.
+5. Final normalized source/app focused comparison: matching greeting, brand, tier card, metrics, colors and spacing. Full-view differences below the tier card are the requested added portal capabilities. No remaining actionable P0/P1/P2 visual issue in the inspected states.
 
-## Interaction and technical verification
+## Browser verification
 
-- Runtime integrity check passed for all 28 protected mobile runtime files.
-- TypeScript compile and production build passed.
-- Tested Home → Warranty, Leads, Products, add-to-cart, and Request Cart paths.
-- Warranty filter and both keyboard-aware search inputs are implemented.
-- Browser console checked: no errors or warnings.
+Verified with native Chrome through the computer-use API after the in-app browser DOM API repeatedly timed out. No Playwright or injected browser scripts were used.
 
-## Comparison history
+- Home and five main navigation tabs render, header/account routes and back navigation work.
+- Warranty counts and Draft filter update; details open; Edit registration loads the original draft; Save as draft returns to the filtered list with confirmation.
+- Lead details show contact/owner/status/audit fields; Accept changes Pending Claim to Claimed, updates its date, and adds an activity entry. State survived reload.
+- Product Add updates the cart badge; 1 pallet of SPR-P7-515-BLK-P becomes 36 pcs. The cart's dated local submission creates a Submitted request and clears the cart.
+- Account → User Management → Invite: name/email entry, Warranty permission selection and local invitation save create a third user with Invited status. No external invitation was sent.
+- Marketing resource list/grid toggle and descriptions render in the Pixel preset with readable wrapping.
+- Training calendar displays October correctly with event dates 23/28 highlighted; event list and filters render.
+- Device picker switches between iPhone and Pixel 10, with status bar, camera cutout, device bezel and platform navigation preserved.
+- Local reset confirmation restores the original sample counts and returns Home. Test records were reset before handoff.
+- Console read using Chrome DevTools UI; no application errors after favicon repair.
 
-- Initial pass: no P0/P1/P2 findings. No visual fixes were required after the normalized full-view and focused-region review.
+## Build and automated checks
 
-## Follow-up polish
+- `pnpm run build`: passed (TypeScript, Vite, protected runtime integrity, Sites-compatible packaging).
+- Protected runtime integrity: passed, all 28 files unchanged.
+- `node --test tests/sites-worker.test.mjs`: 4 passed.
+- Vite reports a non-blocking chunk size advisory (~546 kB minified, ~170 kB gzip), largely including the retained mobile runtime.
 
-- P3: a future iteration could add a dedicated mobile hero image or news carousel, but neither is required for the requested functional page demo.
+## Limits and follow-up polish
 
-## Field Ops integration update
+- Native scaled captures were normalized; an automated DOM-measured 1:1 screenshot and exhaustive keyboard/browser matrix were not available through the timed-out browser-tab API.
+- CSV bulk import/export, every validation branch, all role combinations, and the manual recycling policy are implemented but not exhaustively browser-tested in this pass.
+- Full official file preview/download, cross-platform SSO, live stock, homeowner messaging and real account mutations need the supported backend contracts. Local resource selections do not carry into the live portal.
+- Exact SKU imagery and code splitting are remaining polish/production tasks.
 
-- Additional source visual truth: `/var/folders/97/_xk916z5461gmldt5xzpfsg00000gn/T/codex-clipboard-ab1228de-540e-46f3-a8f8-aa8f7a43b2a6.jpg` (Honghu installation and O&M app reference).
-- Implementation screenshot: `implementation-field-ops.png`.
-- Combined comparison: `qa-comparison-field-ops.png`.
-- The existing Honghu systems overview, health distribution, alert severity and attention workflow are preserved inside a new `Field Ops` bottom tab.
-- Installation and operations are combined through an in-page segmented control; both states were tested.
-- Five bottom-tab labels remain readable at the 393 × 852 iPhone viewport.
-- Navigation now follows the mobile runtime keyboard contract: bottom navigation moves above the keyboard and dismisses it before switching tabs.
-- Browser console checked after both modes and keyboard-to-navigation transition: no errors or warnings.
-- Update result: no actionable P0/P1/P2 differences remain.
+## Implementation checklist
 
-## Register Warranty integration update
-
-- Additional source visual truth: `/var/folders/97/_xk916z5461gmldt5xzpfsg00000gn/T/codex-clipboard-d2de8363-03cd-4dc7-9665-81178e1e0091.png`.
-- Implementation screenshot: `implementation-register-warranty.png`.
-- Combined comparison: `qa-comparison-register-warranty.png`.
-- The desktop drawer was intentionally converted into a three-section mobile form: Installation Information, Homeowner Information, and Lead Information.
-- Required fields, quantity controls, product auto-fill treatment, consent, draft save, and homeowner-send actions match the source workflow.
-- Mobile layout uses one-column fields with paired compact fields only where adequate width remains; the form scrolls through the existing mobile runtime.
-- Save-as-draft success, consent-dependent send enablement, back navigation, and keyboard-aware text entry were tested.
-- Runtime integrity, TypeScript compile, production build, and browser console checks passed with no errors or warnings.
-- Update result: no actionable P0/P1/P2 differences remain.
-
-## Home news integration update
-
-- Added a `Latest news` section that follows the source portal's home-page hierarchy and adapts it to the mobile card system.
-- The lead story includes a branded visual, category, date, headline, summary, and explicit read affordance.
-- `View all` expands a second product-update story in place; both stories expose selected/open feedback.
-- Verified the collapsed and expanded states in the iPhone preview. The fixed bottom navigation remains usable and does not obscure the active news content after scrolling.
-- Mobile runtime integrity, TypeScript compile, and production build passed.
-- Update result: no actionable P0/P1/P2 differences remain.
-
-## Tier metrics legibility update
-
-- Increased contrast for the tier subtitle, progress labels, percentage, and all three summary metrics.
-- Enlarged and strengthened the primary metric values while keeping supporting labels visually secondary.
-- Added subtle vertical separators between Installed, Kits, and Review for faster scanning.
-- Verified the updated tier card in the iPhone preview; all values remain visible without wrapping or clipping.
-- Runtime integrity, TypeScript compile, and production build passed.
-
-## Product purchase history update
-
-- Added equal-priority `Purchase history` and `Request cart` entry cards at the top of Products.
-- Added a dedicated mobile order-history view with order count, cumulative purchase value, order number, date, status, item summary, and total.
-- Added an All/Delivered status filter and a return path to the product catalog.
-- Verified entry navigation, filtering, return navigation, and persistent bottom-tab behavior in the iPhone preview.
-- Runtime integrity, TypeScript compile, and production build passed.
-
-final result: passed
+- [x] Retain original app visual language and protected runtime.
+- [x] Add observed portal module navigation and local core flows.
+- [x] Distinguish local sample actions from live services.
+- [x] Repair header clipping, footer safe area and keyboard dismissal.
+- [x] Inspect combined source/app comparison and both device presets.
+- [x] Build and run relevant available checks.
+- [x] Keep local preview running.
