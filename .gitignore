@@ -3,9 +3,5 @@ dist/
 test-results/
 playwright-report/
 
-# Keep full desktop captures local; publish only app-screen comparisons.
+# Keep all visual QA captures local.
 evidence/*.png
-!evidence/source-home-screen.png
-!evidence/implementation-home-screen.png
-!evidence/home-comparison.png
-!evidence/home-focus-comparison.png

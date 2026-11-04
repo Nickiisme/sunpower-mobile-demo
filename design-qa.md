@@ -4,7 +4,7 @@ final result: passed
 
 Scope: visual fidelity to the supplied mobile demo and usability of the local preview flows. This result does not certify production API integration or full live portal parity. See README.md for each service boundary.
 
-Full desktop captures stay local. Only cropped app-screen images and combined comparisons are included in the repository.
+All screenshots and visual comparisons stay local and are excluded from the public repository.
 
 ## Source and implementation evidence
 
