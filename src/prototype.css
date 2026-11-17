@@ -2570,3 +2570,7 @@ a.outline {
   background: #ffe8e3;
   color: #b22e25;
 }
+
+/* Page headings scroll with each tab's content; brand/account chrome stays fixed. */
+.sunpower-app .scrolling-page-title{background:#fff;padding:0 22px 18px;border-bottom:1px solid #edf0f5}.scrolling-page-title .page-title{margin-top:24px}.faq-item summary{font-size:13px;line-height:1.5;color:var(--ink)}.faq-item .intro{margin:12px 0}.faq-item .text-btn{display:flex;align-items:center;gap:4px}
+.sunpower-app .topbar{padding-bottom:0;border-bottom:0}.sunpower-app .scrolling-page-title{display:flow-root}

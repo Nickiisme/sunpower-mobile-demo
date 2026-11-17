@@ -32,6 +32,7 @@ import {
   SewingPinIcon,
   VideoIcon,
   ReaderIcon,
+  QuestionMarkCircledIcon,
 } from "@radix-ui/react-icons";
 import {
   KeyboardInput as MobileTextField,
@@ -56,7 +57,8 @@ type Page =
   | "users"
   | "messages"
   | "benefits"
-  | "news";
+  | "news"
+  | "faq";
 type Warranty = {
   id: string;
   serial: string;
@@ -616,15 +618,7 @@ const tabs: { id: Tab; label: string; icon: React.ComponentType }[] = [
   { id: "products", label: "Products", icon: BackpackIcon },
   { id: "fieldops", label: "Field Ops", icon: GearIcon },
 ];
-function Header({
-  title,
-  subtitle,
-  back,
-}: {
-  title: string;
-  subtitle: string;
-  back?: () => void;
-}) {
+function Header() {
   const { go, data } = useApp();
   return (
     <header className="topbar">
@@ -649,15 +643,6 @@ function Header({
         >
           XW
         </button>
-      </div>
-      <div className="page-title">
-        {back && (
-          <button className="title-back" aria-label="Back" onClick={back}>
-            <ArrowLeftIcon />
-          </button>
-        )}
-        <h1>{title}</h1>
-        <p>{subtitle}</p>
       </div>
     </header>
   );
@@ -832,6 +817,7 @@ function HomeScreen() {
           sub="Study, exams & classes"
           onClick={() => go("academy")}
         />
+        <MenuRow icon={<QuestionMarkCircledIcon />} title="FAQ" sub="Frequently asked questions & help" onClick={() => go("faq")} />
       </div>
       <div className="section-row">
         <h3 className="section-title">Upcoming</h3>
@@ -3794,6 +3780,20 @@ function MessagesScreen() {
     </section>
   );
 }
+function FAQScreen() {
+  const { go } = useApp();
+  const [query, setQuery] = useState("");
+  const questions: { question: string; answer: string; page: Page; action: string }[] = [
+    { question: "How do I register a warranty?", answer: "Open Warranty and choose Register warranty. Enter the installation date, serial number and quantity. Save a draft, or add the homeowner email and confirm consent before submitting. This preview saves locally; real emails are sent through Partner Portal.", page: "warranty", action: "Go to Warranty" },
+    { question: "Where can I find my leads?", answer: "Open Leads to search opportunities, view My leads or Shared pool, and review follow-up history. Reassignment follows the configured owner and admin permissions in this preview.", page: "leads", action: "Go to Leads" },
+    { question: "How do I request product pricing?", answer: "Add products to the request cart, review the pallet or kit quantities and select a delivery date. Requests in this preview are saved locally. Use Partner Portal to submit a real price request and check current stock.", page: "products", action: "Go to Products" },
+    { question: "Where are product guides and partner resources?", answer: "Marketing contains partner manuals and resource entrances. Official document previews and downloads open in Partner Portal. Training and Academy are available from Partner resources on Home.", page: "marketing", action: "Go to Marketing" },
+    { question: "How can I contact partner support?", answer: "Open Your account for the partner support phone number and email address, along with account and team management entrances.", page: "profile", action: "Contact support" },
+  ];
+  const rows = questions.filter(q => (q.question + " " + q.answer).toLowerCase().includes(query.toLowerCase()));
+  return <section className="content"><Search value={query} set={setQuery} placeholder="Search frequently asked questions" /><p className="helper">Help for using this partner app preview.</p>{rows.map(q => <details className="filter-details faq-item" key={q.question}><summary>{q.question}</summary><p className="intro">{q.answer}</p><button className="text-btn" onClick={() => go(q.page)}>{q.action} <ChevronRightIcon /></button></details>)}{!rows.length && <Empty>Try warranty, leads, pricing or resources.</Empty>}</section>;
+}
+
 const pageInfo: Record<Page, [string, string]> = {
   home: ["Good morning, Xin", "Here’s your partner overview"],
   warranty: ["Warranty", "Manage your registrations"],
@@ -3808,6 +3808,7 @@ const pageInfo: Record<Page, [string, string]> = {
   messages: ["Messages", "Stay up to date"],
   benefits: ["Partner benefits", "Your progress and rewards"],
   news: ["Latest news", "What’s new at TCL SunPower"],
+  faq: ["FAQ", "Frequently asked questions"],
 };
 export default function Prototype() {
   const [data, setData] = useState<Store>(restore);
@@ -3861,6 +3862,7 @@ export default function Prototype() {
     messages: <MessagesScreen />,
     benefits: <BenefitsScreen />,
     news: <NewsScreen />,
+    faq: <FAQScreen />,
   };
   return (
     <AppContext.Provider value={{ data, setData, go, notify: setToast }}>
@@ -3869,13 +3871,18 @@ export default function Prototype() {
         data-build="portal-restoration-v2"
         data-keyboard-open={keyboard.visible}
       >
-        <Header
-          title={title}
-          subtitle={subtitle}
-          back={!tabs.some((t) => t.id === page) ? back : undefined}
-        />
+        <Header />
         <MobileScroll key={page} className="app-screen">
-          <main className="app-main">{screens[page]}</main>
+          <main className="app-main"><section className="scrolling-page-title">      <div className="page-title">
+        {!tabs.some((t) => t.id === page) && (
+          <button className="title-back" aria-label="Back" onClick={back}>
+            <ArrowLeftIcon />
+          </button>
+        )}
+        <h1>{title}</h1>
+        <p>{subtitle}</p>
+      </div>
+</section>{screens[page]}</main>
         </MobileScroll>
         <BottomNav tab={tab} />
         {toast && (

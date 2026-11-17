@@ -72,3 +72,7 @@ Verified with native Chrome through the computer-use API after the in-app browse
 - [x] Inspect combined source/app comparison and both device presets.
 - [x] Build and run relevant available checks.
 - [x] Keep local preview running.
+
+## 17 November 2026 scoped update
+
+Added the FAQ menu below Academy, with searchable expandable preview-help answers and links to relevant app modules. Intelligent Q&A was excluded at the user's request. Moved page titles/subtitles from the fixed header into MobileScroll; brand/account and bottom navigation remain fixed. Browser verification checked all five tab headings are inside the scroll container and absent from fixed chrome; FAQ navigation and answer expansion passed. Local screenshot: /tmp/sunpower-faq-preview.png (not published).

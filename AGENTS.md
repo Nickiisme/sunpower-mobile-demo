@@ -73,3 +73,7 @@ When any text-entry control loses focus, dismiss the simulated keyboard. If the 
 ## SunPower portal restoration (25 October 2026)
 
 Use https://nickiisme.github.io/sunpower-mobile-demo/ as the visual reference. Preserve its five main tabs and mobile runtime. The user's requested scope is the existing Partner Portal's capabilities inside this app architecture. Marketing, Live training, Academy, tier details, news, profile, user management and messages are reached from Home/header. Local sample mutations must clearly identify themselves as preview-only. Official documents, real invitations/emails, credentials and external academy/monitoring services retain explicit authenticated portal links until supported production APIs are integrated. Never add credentials or tokens from a browser session to the source.
+
+## FAQ and heading behavior (17 November 2026)
+
+Partner resources includes FAQ below Academy. Do not add an intelligent Q&A entrance in this iteration. Page titles and subtitles belong in the scrolling content on all five main tabs; only brand/account chrome and bottom navigation stay fixed.
