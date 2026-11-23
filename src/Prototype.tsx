@@ -2,6 +2,7 @@ import {
   createContext,
   useContext,
   useEffect,
+  useRef,
   useState,
   type ComponentProps,
   type ReactNode,
@@ -107,7 +108,31 @@ type Request = {
   delivery: string;
   note: string;
 };
+type HomeConfig = {
+  applicationSubmitted: boolean;
+  level: string;
+  accountType: string;
+  purchasedKw: number;
+  essKits: number;
+  targetKw: number;
+  targetKits: number;
+  reviewDate: string;
+  banner: boolean;
+  bannerTitle: boolean;
+  bannerExplore: boolean;
+  content: boolean;
+  notification: "None" | "Invitation" | "Rejected";
+};
+const defaultHome = (): HomeConfig => ({
+  applicationSubmitted: false,
+  level: "Authorized", accountType: "Admin",
+  purchasedKw: 112, essKits: 7, targetKw: 500, targetKits: 24,
+  reviewDate: "2026-12-31", banner: true, bannerTitle: true,
+  bannerExplore: true, content: true, notification: "None",
+});
+type RouteIntent = { leadStage?: string; editProfile?: boolean };
 type Store = {
+  home: HomeConfig;
   warranties: Warranty[];
   leads: Lead[];
   users: User[];
@@ -144,6 +169,7 @@ const today = () =>
   }).format(new Date());
 const now = () => new Date().toLocaleString("en-GB");
 const initial = (): Store => ({
+  home: defaultHome(),
   warranties: [
     {
       id: "W001",
@@ -327,7 +353,7 @@ const initial = (): Store => ({
 function restore(): Store {
   try {
     const value = JSON.parse(localStorage.getItem(KEY) || "null");
-    return value?.version === 2 ? value.data : initial();
+    return value?.version === 2 ? { ...initial(), ...value.data, home: Object.fromEntries(Object.entries(defaultHome()).map(([key, fallback]) => [key, value.data.home?.[key] ?? fallback])) as HomeConfig } : initial();
   } catch {
     return initial();
   }
@@ -335,7 +361,8 @@ function restore(): Store {
 const AppContext = createContext<{
   data: Store;
   setData: React.Dispatch<React.SetStateAction<Store>>;
-  go: (p: Page) => void;
+  go: (p: Page, intent?: RouteIntent) => void;
+  intent: RouteIntent;
   notify: (s: string) => void;
 }>(null!);
 const useApp = () => useContext(AppContext);
@@ -389,19 +416,24 @@ function parseCSV(text: string) {
   if (row.some(Boolean)) rows.push(row);
   return rows;
 }
-function AppSheet(props: ComponentProps<typeof BottomSheet>) {
+function AppSheet({ footer, ...props }: ComponentProps<typeof BottomSheet> & { footer?: ReactNode }) {
   const keyboard = useKeyboard();
+  const { bottomInset } = useKeyboardInsets();
   useEffect(() => {
     if (!props.open) keyboard.hide();
   }, [props.open]);
+  const close = () => { keyboard.hide(); props.onOpenChange(false); };
   return (
-    <BottomSheet
-      {...props}
-      onOpenChange={(open) => {
-        if (!open) keyboard.hide();
-        props.onOpenChange(open);
-      }}
-    />
+    <BottomSheet {...props} onOpenChange={(open) => {
+      if (!open) keyboard.hide();
+      props.onOpenChange(open);
+    }}>
+      <button className="app-sheet-close" aria-label="Close panel" onPointerDown={e => e.preventDefault()} onClick={close}><Cross2Icon /></button>
+      {footer ? <div className="app-sheet-layout">
+        <div className="app-sheet-scroll">{props.children}</div>
+        <div className="app-sheet-footer" onPointerDownCapture={e => { if (e.target instanceof Element && e.target.closest("button")) e.preventDefault(); }} style={{paddingBottom:12 + (keyboard.visible ? 0 : bottomInset)}}>{footer}</div>
+      </div> : props.children}
+    </BottomSheet>
   );
 }
 function Field({
@@ -419,6 +451,7 @@ function Field({
   required?: boolean;
   placeholder?: string;
 }) {
+  const keyboard = useKeyboard();
   return (
     <label className="form-field">
       <span>
@@ -430,6 +463,10 @@ function Field({
         type={type}
         value={value}
         onChange={(e) => set(e.target.value)}
+        onBlur={(e) => {
+          const next = e.relatedTarget;
+          if (!(next instanceof HTMLInputElement || next instanceof HTMLTextAreaElement)) keyboard.hide();
+        }}
         placeholder={placeholder || label}
         required={required}
       />
@@ -647,17 +684,19 @@ function Header() {
     </header>
   );
 }
+const isEntryAccount = (data: Store) => ["Entry", "N/A"].includes(data.home.level);
+const allowedPage = (data: Store, page: Page) => !(isEntryAccount(data) && ["leads", "products"].includes(page));
 function BottomNav({ tab }: { tab: Tab }) {
   const { go, data } = useApp();
-  const { bottomInset } = useKeyboardInsets();
+  const { bottomInset, isKeyboardVisible } = useKeyboardInsets();
   const count = Object.values(data.cart).reduce((a, b) => a + b, 0);
   return (
     <nav
       className="bottom-nav"
-      style={{ bottom: bottomInset }}
+      style={{ bottom: isKeyboardVisible ? bottomInset : Math.max(0, bottomInset - 16) }}
       aria-label="Main navigation"
     >
-      {tabs.map(({ id, label, icon: Icon }) => (
+      {tabs.filter(t => allowedPage(data, t.id)).map(({ id, label, icon: Icon }) => (
         <button
           key={id}
           aria-current={id === tab ? "page" : undefined}
@@ -674,7 +713,7 @@ function BottomNav({ tab }: { tab: Tab }) {
     </nav>
   );
 }
-const events = [
+const trainingEvents = [
   {
     id: "e1",
     day: "28",
@@ -729,50 +768,99 @@ const news = [
     action: "Marketing assets",
   },
 ];
+// Local fixtures mirror the Portal response shape; no production session is used.
+function homeRole(level: string, country: string) {
+  if (["Authorized", "Premier", "Elite"].includes(level)) return "partner";
+  if (["Entry", "N/A"].includes(level)) return ["United Kingdom", "Italy", "Spain", "Germany"].includes(country) ? "entry1" : "entry2";
+  return null;
+}
+const localDate = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+type HomeMessage = { id: string; title: string; body: string; start: string; end: string; countries: string[]; levels: string[]; kind: "Latest News" | "Partner Benefits" | "Marketing Event"; enabled: boolean; location?: string; format?: string };
+const sampleMessages = (): HomeMessage[] => {
+  const date = new Date();
+  const day = (offset: number) => localDate(new Date(date.getFullYear(), date.getMonth(), date.getDate() + offset));
+  return [
+    ...news.map((n, i): HomeMessage => ({ id: `news-${i}`, title: n.title, body: n.body, start: localDate(new Date(date.getFullYear(), date.getMonth(), Math.max(1, date.getDate() - i))), end: day(30), countries: [], levels: [], kind: "Latest News", enabled: true })),
+    { id: "benefits", title: "Grow with SunPower", body: "Discover the partner program, sales resources, training and opportunities available to your business.", start: day(-365), end: day(365), countries: [], levels: [], kind: "Partner Benefits", enabled: true },
+    { id: "event-1", title: "Unlock your Partner Portal", body: "Explore partner tools, warranty registration and lead management. Sample event · confirm timing and register in Portal.", start: day(0), end: day(0), countries: [], levels: [], kind: "Marketing Event", enabled: true, format: "Online", location: "Online" },
+    { id: "event-2", title: "Solar & storage partner workshop", body: "A regional workshop covering solar and storage solutions. Sample event · confirm availability in Portal.", start: day(7), end: day(7), countries: ["United Kingdom", "Germany", "Italy", "Spain"], levels: ["Authorized", "Premier", "Elite"], kind: "Marketing Event", enabled: true, format: "Offline", location: "Regional partner centre" },
+  ];
+};
+function visibleHomeMessages(data: Store, kind: HomeMessage["kind"]) {
+  return data.home.content ? sampleMessages().filter(m => m.kind === kind && m.enabled && (!m.countries.length || m.countries.includes(data.profile.country)) && (!m.levels.length || m.levels.includes(data.home.level))) : [];
+}
+function relativeLeadDate(value: string) {
+  const diff = Math.max(0, Date.now() - new Date(value.replace(" ", "T")).getTime());
+  if (!Number.isFinite(diff)) return "";
+  if (diff < 60000) return "Just now";
+  if (diff < 3600000) return `${Math.floor(diff / 60000)} minutes ago`;
+  if (diff < 86400000) return `${Math.floor(diff / 3600000)} hours ago`;
+  if (diff < 604800000) return `${Math.floor(diff / 86400000)} days ago`;
+  return `On ${new Date(value).toLocaleDateString("en-GB")}`;
+}
+function TierCard() {
+  const { data } = useApp();
+  const h = data.home;
+  const highest = h.level === "Elite";
+  const next = ({ Entry: "Authorized", Authorized: "Premier", Premier: "Elite" } as Record<string, string>)[h.level] || "Authorized";
+  return <article className="hero-card" data-testid="current-tier">
+    <span className="eyebrow">CURRENT TIER · SAMPLE PROGRESS</span>
+    <div className="tier-head"><div className="tier-badge"><RocketIcon /></div><div><h2>{h.level}</h2><p>{highest ? "You’ve reached the highest tier" : `Your next milestone: ${next}`}</p></div></div>
+    {([["Purchased solar", h.purchasedKw, h.targetKw, "kW"], ["ESS kits", h.essKits, h.targetKits, "kits"]] as const).map(([label, current, target, unit]) => {
+      const percent = target > 0 ? Math.round(Math.max(0, Math.min(100, current / target * 100))) : 0;
+      return <div key={label} className="home-metric"><div className="progress-label"><span>{label}</span><b>{highest ? `${current} ${unit}` : `${percent}%`}</b></div>{!highest && <div className="progress" role="progressbar" aria-label={label} aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100}><i style={{width: `${percent}%`}} /></div>}{!highest && <p>{current} {unit} / {target} {unit} · {Math.max(0, target - current)} remaining</p>}</div>;
+    })}
+    <div className="home-tier-review">{highest ? "Elite partner" : `Target: ${h.targetKw} kW or ${h.targetKits} ESS kits`}<span>Review · {h.reviewDate}</span></div>
+  </article>;
+}
+function HomeNews({ items, open }: { items: HomeMessage[]; open: (m: HomeMessage) => void }) {
+  const root = useRef<HTMLDivElement>(null);
+  const [paused, setPaused] = useState(false);
+  useEffect(() => {
+    if (paused || items.length < 2) return;
+    const timer = setInterval(() => {
+      const rail = root.current?.querySelector<HTMLElement>(".home-news-carousel");
+      if (!rail || !rail.clientWidth) return;
+      const next = (Math.round(rail.scrollLeft / (rail.clientWidth + 12)) + 1) % items.length;
+      rail.scrollLeft = next * (rail.clientWidth + 12);
+    }, 2500);
+    return () => clearInterval(timer);
+  }, [paused, items.length]);
+  return <div ref={root} onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)} onFocus={() => setPaused(true)} onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget)) setPaused(false); }} onTouchStart={() => setPaused(true)} onTouchEnd={() => setPaused(false)}>
+    <Carousel ariaLabel="Latest news" className="home-news-carousel" contentClassName="home-news-track">{items.map(n => <button key={n.id} className="news-card" onClick={() => open(n)}><img src={module515} alt="SunPower solar module" /><span className="news-copy"><span className="news-meta"><em>Latest news</em><time>{n.start}</time></span><b>{n.title}</b><small>{n.body}</small><span className="news-link">Read story<ChevronRightIcon /></span></span></button>)}</Carousel>
+  </div>;
+}
 function HomeScreen() {
-  const { go, data } = useApp();
-  return (
-    <section className="content home-content">
-      <article className="hero-card">
-        <span className="eyebrow">CURRENT TIER</span>
-        <div className="tier-head">
-          <div className="tier-badge">
-            <RocketIcon />
-          </div>
-          <div>
-            <h2>Authorized</h2>
-            <p>100 kW / 5 kits achieved</p>
-          </div>
-        </div>
-        <div className="progress-label">
-          <span>Progress to Premier</span>
-          <b>28%</b>
-        </div>
-        <div className="progress">
-          <i />
-        </div>
-        <div className="tier-stats">
-          <span>
-            <b>112 kW</b>Installed
-          </span>
-          <span>
-            <b>7</b>Kits
-          </span>
-          <span>
-            <b>Jan 2027</b>Review
-          </span>
-        </div>
-      </article>
-      <div className="hero-links">
-        <button onClick={() => go("benefits")}>
-          Partner benefits
-          <ChevronRightIcon />
-        </button>
-        <button onClick={() => live("dashboard/home")}>
-          <DownloadIcon />
-          Certification
-        </button>
-      </div>
+  const { go, data, setData } = useApp();
+  const role = homeRole(data.home.level, data.profile.country);
+  const pending = data.leads.filter(l => l.status === "Pending Claim");
+  const latest = [...pending].sort((a,b) => b.created.localeCompare(a.created))[0];
+  const [message, setMessage] = useState<HomeMessage | null>(null);
+  const [profilePrompt, setProfilePrompt] = useState(() => ![data.profile.name, data.profile.email, data.profile.phone, data.profile.company, data.profile.country].every(v => v.trim()));
+  const [notification, setNotification] = useState(data.home.notification);
+  const [agreement, setAgreement] = useState(false);
+  const [application, setApplication] = useState<"confirm" | "success" | "pending" | null>(null);
+  const [month, setMonth] = useState(localDate(new Date()).slice(0,7));
+  const [date, setDate] = useState("");
+  const [limit, setLimit] = useState(10);
+  const [range, setRange] = useState(false);
+  const [year, monthNo] = month.split("-").map(Number);
+  const validMonth = !!year && monthNo >= 1 && monthNo <= 12;
+  const start = localDate(new Date(year, monthNo - (range ? 1 : 2), 1));
+  const end = localDate(new Date(year, monthNo + (range ? 0 : 1), 0));
+  const activities = visibleHomeMessages(data, "Marketing Event").filter(m => m.start <= (date || end) && m.end >= (date || start)).sort((a,b) => a.start.localeCompare(b.start));
+  const allActivities = visibleHomeMessages(data, "Marketing Event");
+  const firstOfMonth = today().slice(0,7) + "-01";
+  const stories = visibleHomeMessages(data, "Latest News").filter(m => m.start <= today() && m.end >= firstOfMonth).sort((a,b) => b.start.localeCompare(a.start)).slice(0,5);
+  const benefit = visibleHomeMessages(data, "Partner Benefits")[0];
+  const closeNotification = () => { setNotification("None"); setAgreement(false); setData(d => ({...d, home: {...d.home, notification: "None"}})); };
+  return <section className="content home-content" data-home-role={role || "unmatched"}>
+    <p className="preview-note">Local preview · {data.profile.country} · {data.home.level}</p>
+    {data.home.banner && <article className="home-banner"><span className="eyebrow">TCL SUNPOWER</span>{data.home.bannerTitle && <h2>Power your next opportunity.</h2>}{data.home.bannerExplore && <button onClick={() => live("dashboard/home")}>Explore more <ExternalLinkIcon /></button>}</article>}
+    {!isEntryAccount(data) && pending.length > 0 && <button className="home-lead-notice" onClick={() => go("leads", {leadStage: "Pending Claim"})}><span className="record-icon"><PersonIcon /></span><span><b>{pending.length} new {pending.length === 1 ? "lead needs" : "leads need"} your attention</b><small>{latest && relativeLeadDate(latest.created)}</small></span><ChevronRightIcon /></button>}
+    {!role && <Section title="Homepage unavailable"><p>No homepage matches this account level. Check your account in Portal.</p><PortalLink path="dashboard/home" /></Section>}
+    {role === "partner" && <><TierCard /><div className="hero-links"><button onClick={() => go("benefits")}>Partner benefits<ChevronRightIcon /></button><button onClick={() => live("dashboard/home")}><DownloadIcon />Certification</button></div></>}
+    {role && role !== "partner" && (benefit || (role === "entry1")) && <article className="article-card"><span className="eyebrow">PARTNER BENEFITS</span><h2>{role === "entry1" ? "Become a SunPower partner" : benefit?.title}</h2><p>{role === "entry1" ? "Join the partner program to grow your business with SunPower." : benefit?.body}</p><button className="primary wide" onClick={() => role === "entry1" ? setApplication(data.home.applicationSubmitted ? "pending" : "confirm") : benefit && setMessage(benefit)}>{role === "entry1" ? "Apply now" : "Explore partner benefits"}<ChevronRightIcon /></button></article>}
       <h3 className="section-title">Quick actions</h3>
       <div className="quick-grid">
         <button onClick={() => go("warranty")}>
@@ -783,7 +871,7 @@ function HomeScreen() {
           <small>Protect a new install</small>
           <ChevronRightIcon />
         </button>
-        <button onClick={() => go("leads")}>
+        {!isEntryAccount(data) && <button onClick={() => go("leads")}>
           <span className="quick-icon blue">
             <PersonIcon />
           </span>
@@ -793,7 +881,8 @@ function HomeScreen() {
             your attention
           </small>
           <ChevronRightIcon />
-        </button>
+        </button>}
+        {isEntryAccount(data) && <button onClick={() => go("fieldops")}><span className="quick-icon blue"><GearIcon /></span><b>Monitoring</b><small>View your systems</small><ChevronRightIcon /></button>}
       </div>
       <div className="section-row">
         <h3 className="section-title">Partner resources</h3>
@@ -819,58 +908,45 @@ function HomeScreen() {
         />
         <MenuRow icon={<QuestionMarkCircledIcon />} title="FAQ" sub="Frequently asked questions & help" onClick={() => go("faq")} />
       </div>
-      <div className="section-row">
-        <h3 className="section-title">Upcoming</h3>
-        <button className="text-btn" onClick={() => go("training")}>
-          View all
-        </button>
+
+    {role && <>
+      <div className="section-row"><h3 className="section-title">Event calendar</h3><button className="text-btn" onClick={() => go("training")}>View all</button></div>
+      <div className="calendar-card"><div className="calendar-heading"><b>{date ? "Selected date" : "Partner activities"}</b><MobileTextField type="month" aria-label="Home calendar month" value={month} onChange={e => {if (e.target.value) {setMonth(e.target.value);setRange(true);setDate("");setLimit(10);}}} /></div><div className="calendar-grid">{["M","T","W","T","F","S","S"].map((d,i) => <span key={`w${i}`}>{d}</span>)}{Array.from({length: validMonth ? (new Date(year,monthNo-1,1).getDay()+6)%7 : 0},(_,i) => <span key={`o${i}`} />)}{Array.from({length: validMonth ? new Date(year,monthNo,0).getDate() : 0},(_,i) => {const key = `${month}-${String(i+1).padStart(2,"0")}`;const hasEvent = allActivities.some(m => m.start <= key && m.end >= key);return <button key={key} aria-label={`Events on ${key}`} aria-pressed={date === key} className={`${hasEvent ? "has-event" : ""} ${date === key ? "selected-day" : ""}`} onClick={() => {setDate(key);setLimit(10);}}>{i+1}</button>;})}</div>{date && <button className="text-btn" onClick={() => {setDate("");setLimit(10);}}>Clear date filter</button>}</div>
+      <div className="record-list">{activities.slice(0,limit).map(m => <button className="event-card" key={m.id} onClick={() => setMessage(m)}><div className="date"><b>{new Date(m.start+"T12:00:00").getDate()}</b><span>{new Date(m.start+"T12:00:00").toLocaleString("en",{month:"short"}).toUpperCase()}</span></div><div><b>{m.title}</b><p>{m.start} · {m.format === "Offline" ? m.location : "Online"}</p></div><ChevronRightIcon /></button>)}</div>
+      {!activities.length && <div className="home-empty"><CalendarIcon /><b>{date ? "No events on this date" : "No upcoming events"}</b><p>Stay tuned for trainings, webinars and partner activities.</p></div>}
+      {activities.length > limit && <button className="outline wide" onClick={() => setLimit(v => v + 10)}>Load more events</button>}
+      {!!stories.length && <><div className="section-row"><h3 className="section-title">Latest news</h3><button className="text-btn" onClick={() => go("news")}>View all</button></div><HomeNews items={stories} open={setMessage} /></>}
+      {role === "partner" && <><article className="support-card"><div className="support-icon"><PersonIcon /></div><div><b>Contact us</b><p>{data.profile.country} partner support</p></div><button onClick={() => go("profile")}>Contact</button></article>{data.home.accountType.toLowerCase() === "admin" && <MenuRow icon={<PersonIcon />} title="User management" sub="Invite users, roles & permissions" onClick={() => go("users")} />}</>}
+    </>}
+    <AppSheet
+      open={application !== null}
+      onOpenChange={open => { if (!open) setApplication(null); }}
+      title={application === "confirm" ? "Become a partner" : application === "success" ? "Application saved" : "Application pending"}
+      description="Local preview · no real application is submitted"
+      snap={0.48}
+      footer={application === "confirm" ? (
+        <button className="primary wide" onClick={() => {
+          if (data.home.applicationSubmitted) { setApplication("pending"); return; }
+          setData(d => ({...d, home:{...d.home,applicationSubmitted:true}}));
+          setApplication("success");
+        }}>Confirm application</button>
+      ) : <button className="primary wide" onClick={() => setApplication(null)}>Done</button>}
+    >
+      <div className="sheet-body">
+        {application === "confirm" ? <>
+          <p>Would you like to apply to become a SunPower partner using your current account?</p>
+          <div className="detail-list"><div><span>Name</span><b>{data.profile.name}</b></div><div><span>Company</span><b>{data.profile.company}</b></div><div><span>Country</span><b>{data.profile.country}</b></div></div>
+          <p className="helper">Confirming records a sample application in this browser only.</p>
+        </> : <>
+          <p>{application === "success" ? "Your sample application has been saved. The preview now shows it as pending review." : "You already have a sample application awaiting review. Please wait before applying again."}</p>
+          <p className="helper">Your membership level stays unchanged. Use Partner Portal to submit or check a real application.</p>
+        </>}
       </div>
-      <button className="event-card" onClick={() => go("training")}>
-        <div className="date">
-          <b>28</b>
-          <span>OCT</span>
-        </div>
-        <div>
-          <b>Unlock your Partner Portal</b>
-          <p>
-            <CalendarIcon /> Online · 28 October
-          </p>
-        </div>
-        <ChevronRightIcon />
-      </button>
-      <div className="section-row">
-        <h3 className="section-title">Latest news</h3>
-        <button className="text-btn" onClick={() => go("news")}>
-          View all
-        </button>
-      </div>
-      <button className="news-card" onClick={() => go("news")}>
-        <img src={module515} alt="SunPower solar module" />
-        <span className="news-copy">
-          <span className="news-meta">
-            <em>Latest news</em>
-            <time>21 Oct 2026</time>
-          </span>
-          <b>{news[0].title}</b>
-          <small>Build confidence in every customer conversation.</small>
-          <span className="news-link">
-            Read story
-            <ChevronRightIcon />
-          </span>
-        </span>
-      </button>
-      <article className="support-card">
-        <div className="support-icon">
-          <PersonIcon />
-        </div>
-        <div>
-          <b>Need partner support?</b>
-          <p>Our team is here to help.</p>
-        </div>
-        <button onClick={() => go("profile")}>Contact</button>
-      </article>
-    </section>
-  );
+    </AppSheet>
+    <AppSheet open={profilePrompt} onOpenChange={setProfilePrompt} title="Complete your profile" description="Add your contact details to complete your partner profile."><div className="sheet-body"><p>Some personal or company information is missing in this local preview.</p><button className="primary wide" onClick={() => {setProfilePrompt(false);go("profile",{editProfile:true});}}>Complete profile</button><button className="outline wide" onClick={() => setProfilePrompt(false)}>{notification !== "None" ? "Next" : "Later"}</button></div></AppSheet>
+    <AppSheet open={!profilePrompt && notification !== "None"} onOpenChange={o => {if (!o) closeNotification();}} title={notification === "Rejected" ? "Application update" : agreement ? "Partner agreement" : "You’re invited"} description="Local preview notification"><div className="sheet-body"><p>{notification === "Rejected" ? "Your sample application needs attention. View the details in Partner Portal." : agreement ? "Review and accept the real agreement securely in Partner Portal. No invitation or agreement is submitted by this preview." : "You have a sample invitation to the partner program."}</p>{notification !== "Rejected" && !agreement ? <button className="primary wide" onClick={() => setAgreement(true)}>Review invitation</button> : <PortalLink path="dashboard/home" label="Review in Partner Portal" />}<button className="outline wide" onClick={closeNotification}>Dismiss</button></div></AppSheet>
+    <AppSheet open={!!message} onOpenChange={o => {if (!o) setMessage(null);}} title={message?.kind || "Message"} description={message?.start}>{message && <div className="sheet-body"><h3>{message.title}</h3><p>{message.body}</p>{message.kind === "Marketing Event" && <p>{message.format === "Offline" ? message.location : "Online"} · {message.start}</p>}<PortalLink path={message.kind === "Marketing Event" ? "livingTrain/list" : "homePage/msgList"} label={message.kind === "Marketing Event" ? "View event & register in Portal" : "View in Partner Portal"} /></div>}</AppSheet>
+  </section>;
 }
 function WarrantyScreen() {
   const { data, setData, notify } = useApp();
@@ -1448,11 +1524,11 @@ function WarrantyScreen() {
   );
 }
 function LeadsScreen() {
-  const { data, setData, notify } = useApp();
+  const { data, setData, notify, intent } = useApp();
   const keyboard = useKeyboard();
   const [query, setQuery] = useState("");
   const [scope, setScope] = useState("All leads");
-  const [stage, setStage] = useState("All stages");
+  const [stage, setStage] = useState(intent.leadStage || "All stages");
   const [source, setSource] = useState("All sources");
   const [type, setType] = useState("All types");
   const [from, setFrom] = useState("");
@@ -2681,9 +2757,16 @@ function MarketingScreen() {
   );
 }
 function TrainingScreen() {
-  const { notify } = useApp();
+  const { notify, data } = useApp();
+  const events = data.home.content ? [...visibleHomeMessages(data, "Marketing Event").map(m => ({
+    id: m.id, title: m.title, description: m.body, date: m.start,
+    day: String(new Date(m.start + "T12:00:00").getDate()),
+    month: new Date(m.start + "T12:00:00").toLocaleString("en", {month:"short"}).toUpperCase(),
+    kind: m.start >= today() ? "Webinar" : "Past webinar",
+    location: m.format === "Offline" ? m.location : "Online",
+  })), ...trainingEvents.map(e => ({...e,location:"Online"}))] : [];
   const [filter, setFilter] = useState("All");
-  const [month, setMonth] = useState("2026-10");
+  const [month, setMonth] = useState(localDate(new Date()).slice(0,7));
   const [selected, setSelected] = useState<string | null>(null);
   const event = events.find((e) => e.id === selected);
   const list = events.filter(
@@ -2768,7 +2851,7 @@ function TrainingScreen() {
               <b>{e.title}</b>
               <p>
                 <VideoIcon />
-                {e.kind} · Online
+                {e.kind} · {e.location}
               </p>
             </div>
             <ChevronRightIcon />
@@ -2797,7 +2880,7 @@ function TrainingScreen() {
             <h3>{event.title}</h3>
             <p>{event.description}</p>
             <p>
-              <VideoIcon /> Online
+              <VideoIcon /> {event.location}
             </p>
             <button
               className="outline wide"
@@ -2886,6 +2969,7 @@ function AcademyScreen() {
 }
 function FieldOpsScreen() {
   const { data, setData, notify } = useApp();
+  const entry = isEntryAccount(data);
   const [mode, setMode] = useState("Operations");
   const [view, setView] = useState("Overview");
   const [query, setQuery] = useState("");
@@ -2938,7 +3022,7 @@ function FieldOpsScreen() {
   );
   return (
     <section className="content field-content">
-      <div className="mode-tabs" role="tablist">
+      {entry ? <h3 className="section-title">Monitoring</h3> : <div className="mode-tabs" role="tablist">
         {["Installation", "Operations"].map((m) => (
           <button
             key={m}
@@ -2954,8 +3038,8 @@ function FieldOpsScreen() {
             {m}
           </button>
         ))}
-      </div>
-      {mode === "Installation" ? (
+      </div>}
+      {!entry && mode === "Installation" ? (
         <>
           <div className="ops-hero">
             <div>
@@ -3267,80 +3351,14 @@ function FieldOpsScreen() {
   );
 }
 function BenefitsScreen() {
-  return (
-    <section className="content">
-      <article className="hero-card">
-        <span className="eyebrow">PARTNER PROGRAM</span>
-        <div className="tier-head">
-          <div className="tier-badge">
-            <RocketIcon />
-          </div>
-          <div>
-            <h2>Authorized</h2>
-            <p>Your next milestone: Premier</p>
-          </div>
-        </div>
-        <div className="progress-label">
-          <span>Progress to Premier</span>
-          <b>28%</b>
-        </div>
-        <div className="progress">
-          <i />
-        </div>
-      </article>
-      <h3 className="section-title">Your partner journey</h3>
-      {[
-        ["Entry", "Start your journey"],
-        ["Authorized", "100 kW / 5 Kits"],
-        ["Premier", "400 kW / 20 Kits"],
-        ["Elite", "1,750 kW / 60 Kits"],
-      ].map(([title, sub]) => (
-        <article className="tier-row" key={title}>
-          <span className="record-icon">
-            <RocketIcon />
-          </span>
-          <div>
-            <b>{title}</b>
-            <small>{sub}</small>
-          </div>
-          {title === "Authorized" && <Status value="Current" />}
-        </article>
-      ))}
-      <Section title="Review date">
-        <p>1 January 2027</p>
-        <p className="helper">
-          The live portal determines eligibility, benefits and certification.
-        </p>
-        <PortalLink
-          path="dashboard/home"
-          label="View benefits & download certification"
-        />
-      </Section>
-    </section>
-  );
+  const { data } = useApp();
+  const canDownload = ["Authorized", "Premier", "Elite"].includes(data.home.level);
+  return <section className="content"><TierCard /><h3 className="section-title">Your partner journey</h3>{["Entry","Authorized","Premier","Elite"].map(level => <article className="tier-row" key={level}><span className="record-icon"><RocketIcon /></span><div><b>{level}</b><small>{level === "Entry" ? "Start your journey" : "Discover partner benefits in Portal"}</small></div>{level === data.home.level && <Status value="Current" />}</article>)}<Section title="Partner benefits"><p>Explore partner resources, training, marketing support and the benefits of your membership.</p><PortalLink path="homePage/msgList" label="View partner benefits in Portal" /><button className="outline wide" disabled={!canDownload} onClick={() => live("dashboard/home")}><DownloadIcon />Download certificate in Portal</button>{!canDownload && <p className="helper">Certificates are available from Authorized tier.</p>}</Section></section>;
 }
 function NewsScreen() {
-  return (
-    <section className="content">
-      {news.map((n) => (
-        <article className="article-card" key={n.title}>
-          <small>LATEST NEWS · {n.date}</small>
-          <h2>{n.title}</h2>
-          <p>{n.body}</p>
-          <a
-            className="outline wide"
-            href={n.link}
-            target="_blank"
-            rel="noreferrer"
-          >
-            {n.action}
-            <ExternalLinkIcon />
-          </a>
-        </article>
-      ))}
-      <PortalLink path="dashboard/home" label="View all news in portal" />
-    </section>
-  );
+  const { data } = useApp();
+  const items = visibleHomeMessages(data, "Latest News").sort((a,b) => b.start.localeCompare(a.start));
+  return <section className="content">{items.map(n => <article className="article-card" key={n.id}><small>LATEST NEWS · {n.start}</small><h2>{n.title}</h2><p>{n.body}</p><PortalLink path="homePage/msgList" label="View story in Partner Portal" /></article>)}{!items.length && <Empty>No news is available for this account.</Empty>}<PortalLink path="homePage/msgList" label="View all news in Portal" /></section>;
 }
 const permissionOptions = [
   "Warranty",
@@ -3534,9 +3552,77 @@ function UsersScreen() {
     </section>
   );
 }
+function HomeSettings({ open, setOpen }: { open: boolean; setOpen: (v: boolean) => void }) {
+  const { data, setData, go } = useApp();
+  const [draft, setDraft] = useState(data.home);
+  const [country, setCountry] = useState(data.profile.country);
+  useEffect(() => {
+    if (open) { setDraft(data.home); setCountry(data.profile.country); }
+  }, [open]);
+  const toggle = (key: "banner" | "bannerTitle" | "bannerExplore" | "content", label: string) => (
+    <Select label={label} value={draft[key] ? "Show" : "Hide"}
+      set={v => setDraft(d => ({ ...d, [key]: v === "Show" }))} options={["Show", "Hide"]} />
+  );
+  return (
+    <AppSheet open={open} onOpenChange={setOpen} title="Homepage preview"
+      footer={<button className="primary wide" onClick={() => {
+        setData(d => ({ ...d, home: draft, profile: { ...d.profile, country } }));
+        setOpen(false); go("home");
+      }}>Preview homepage</button>}>
+      <div className="sheet-body preview-settings">
+        <section className="preview-settings-group" aria-labelledby="preview-account-heading">
+          <div className="preview-group-heading"><span className="record-icon"><PersonIcon /></span><div>
+            <h3 id="preview-account-heading">Account preview</h3>
+            <p>Choose the account that determines your homepage and available tabs.</p>
+          </div></div>
+          <Select label="Partner level" value={draft.level} set={level => setDraft(d => ({ ...d, level }))}
+            options={["Entry", "N/A", "Authorized", "Premier", "Elite", "Unmatched"]} />
+          <Select label="Account country" value={country} set={setCountry}
+            options={["United Kingdom", "Italy", "Spain", "Germany", "France", "Norway"]} />
+          <Select label="Account type" value={draft.accountType} set={accountType => setDraft(d => ({ ...d, accountType }))}
+            options={["Admin", "User"]} />
+        </section>
+        <section className="preview-settings-group" aria-labelledby="preview-dashboard-heading">
+          <div className="preview-group-heading"><span className="record-icon"><RocketIcon /></span><div>
+            <h3 id="preview-dashboard-heading">Membership dashboard</h3>
+            <p>Set sample progress, review date and homepage content.</p>
+          </div></div>
+          <div className="form-grid">
+            {([['purchasedKw', 'Purchased solar (kW)'], ['essKits', 'ESS kits'], ['targetKw', 'Next target (kW)'], ['targetKits', 'Next target (kits)']] as const).map(([key, label]) => (
+              <Field key={key} label={label} type="number" value={String(draft[key])}
+                set={v => setDraft(d => ({ ...d, [key]: Math.max(0, Number(v) || 0) }))} />
+            ))}
+          </div>
+          <Field label="Review date" type="date" value={draft.reviewDate} set={reviewDate => setDraft(d => ({ ...d, reviewDate }))} />
+          {toggle("banner", "Homepage banner")}
+          {toggle("bannerTitle", "Banner title")}
+          {toggle("bannerExplore", "Banner explore button")}
+          {toggle("content", "News, benefits & events")}
+        </section>
+        <section className="preview-settings-group" aria-labelledby="preview-notifications-heading">
+          <div className="preview-group-heading"><span className="record-icon"><BellIcon /></span><div>
+            <h3 id="preview-notifications-heading">Messages & notifications</h3>
+            <p>Try application reminders, invitations and application updates.</p>
+          </div></div>
+          <Select label="Application history" value={draft.applicationSubmitted ? "Application pending" : "First application"}
+            set={v => setDraft(d => ({ ...d, applicationSubmitted: v === "Application pending" }))}
+            options={["First application", "Application pending"]} />
+          <Select label="Pending notification" value={draft.notification}
+            set={notification => setDraft(d => ({ ...d, notification: notification as HomeConfig["notification"] }))}
+            options={["None", "Invitation", "Rejected"]} />
+        </section>
+        <p className="helper">These settings affect this preview only. Formal tier qualification, agreements and certificates remain in Partner Portal.</p>
+      </div>
+    </AppSheet>
+  );
+}
+
 function ProfileScreen() {
-  const { data, setData, go, notify } = useApp();
-  const [editing, setEditing] = useState(false);
+  const { data, setData, go, notify, intent } = useApp();
+  const [editing, setEditing] = useState(!!intent.editProfile);
+  const [homeSettings, setHomeSettings] = useState(false);
+  const [languageOpen, setLanguageOpen] = useState(false);
+  const [language, setLanguage] = useState(data.profile.language);
   const [profile, setProfile] = useState(data.profile);
   const [cookieSheet, setCookieSheet] = useState(false);
   const [analytics, setAnalytics] = useState(false);
@@ -3547,7 +3633,7 @@ function ProfileScreen() {
         <span className="profile-avatar">XW</span>
         <h2>{data.profile.name}</h2>
         <p>{data.profile.company}</p>
-        <Status value="Partner admin" />
+        <Status value={data.home.accountType === "Admin" ? "Partner admin" : "Partner user"} />
         <p className="preview-note">
           Local preview · Sample data · Saved in this browser
         </p>
@@ -3561,12 +3647,12 @@ function ProfileScreen() {
           setEditing(true);
         }}
       />
-      <MenuRow
+      {data.home.accountType === "Admin" && <MenuRow
         icon={<PersonIcon />}
         title="User management"
         sub="Invite users, roles & permissions"
         onClick={() => go("users")}
-      />
+      />}
       <MenuRow
         icon={<GearIcon />}
         title="Change password"
@@ -3578,8 +3664,8 @@ function ProfileScreen() {
         title="Language"
         sub={data.profile.language}
         onClick={() => {
-          setProfile({ ...data.profile });
-          setEditing(true);
+          setLanguage(data.profile.language);
+          setLanguageOpen(true);
         }}
       />
       <MenuRow
@@ -3588,13 +3674,10 @@ function ProfileScreen() {
         sub="Privacy preferences"
         onClick={() => setCookieSheet(true)}
       />
+      <MenuRow icon={<GearIcon />} title="Homepage preview" sub="Try account levels, countries & homepage states" onClick={() => setHomeSettings(true)} />
+      <HomeSettings open={homeSettings} setOpen={setHomeSettings} />
       <h3 className="section-title">Contact us</h3>
-      <div className="contact-card">
-        <a href="tel:+442045726579">+44 2045726579</a>
-        <a href="mailto:PartnerService.UK@sunpowerglobal.com">
-          PartnerService.UK@sunpowerglobal.com
-        </a>
-      </div>
+      <div className="contact-card">{data.profile.country === "United Kingdom" ? <><a href="tel:+442045726579">+44 2045726579</a><a href="mailto:PartnerService.UK@sunpowerglobal.com">PartnerService.UK@sunpowerglobal.com</a></> : <><p>{data.profile.country} partner support</p><PortalLink path="dashboard/home" label="View regional contact details" /></>}</div>
       <PortalLink
         path="dashboard/home"
         label="Open your live Partner Portal account"
@@ -3607,6 +3690,21 @@ function ProfileScreen() {
         onOpenChange={setEditing}
         title="Your profile"
         description="Changes apply to this preview only."
+        footer={<button
+            className="primary wide"
+            onClick={() => {
+              if (
+                !profile.name.trim() ||
+                !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(profile.email)
+              )
+                return notify("Enter your name and a valid email.");
+              setData((d) => ({ ...d, profile }));
+              setEditing(false);
+              notify("Profile saved locally.");
+            }}
+          >
+            Save profile
+          </button>}
       >
         <div className="sheet-body">
           <Field
@@ -3631,31 +3729,19 @@ function ProfileScreen() {
             value={profile.company}
             set={(company) => setProfile({ ...profile, company })}
           />
-          <Select
-            label="Language preference"
-            value={profile.language}
-            set={(language) => setProfile({ ...profile, language })}
-            options={["English", "Français", "Deutsch", "Italiano", "Español"]}
-          />
-          <p className="helper">
-            Language preference is saved here. Use the live portal for
-            translated content.
-          </p>
-          <button
-            className="primary wide"
-            onClick={() => {
-              if (
-                !profile.name.trim() ||
-                !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(profile.email)
-              )
-                return notify("Enter your name and a valid email.");
-              setData((d) => ({ ...d, profile }));
-              setEditing(false);
-              notify("Profile saved locally.");
-            }}
-          >
-            Save profile
-          </button>
+          <Select label="Country" value={profile.country} set={country => setProfile({...profile,country})} options={["United Kingdom","Italy","Spain","Germany","France","Norway"]} />
+
+        </div>
+      </AppSheet>
+      <AppSheet open={languageOpen} onOpenChange={setLanguageOpen} title="Language" description="Choose your language preference" snap={0.43}
+        footer={<button className="primary wide" onClick={() => {
+          setData(d => ({...d,profile:{...d.profile,language}}));
+          setLanguageOpen(false);
+          notify("Language preference saved locally.");
+        }}>Save language</button>}>
+        <div className="sheet-body">
+          <Select label="Language preference" value={language} set={setLanguage} options={["English", "Français", "Deutsch", "Italiano", "Español"]} />
+          <p className="helper">This saves your preview preference. Open Partner Portal for translated content.</p>
         </div>
       </AppSheet>
       <AppSheet
@@ -3811,8 +3897,23 @@ const pageInfo: Record<Page, [string, string]> = {
   faq: ["FAQ", "Frequently asked questions"],
 };
 export default function Prototype() {
+  const appRoot = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    // Native input focus can scroll overflow-hidden device chrome. Only the
+    // app's content scrollers should move; keep the phone coordinate origin fixed.
+    const screen = appRoot.current?.closest<HTMLElement>('[data-phone-screen]');
+    if (!screen) return;
+    const restoreScreenOrigin = () => {
+      if (screen.scrollTop !== 0) screen.scrollTop = 0;
+      if (screen.scrollLeft !== 0) screen.scrollLeft = 0;
+    };
+    restoreScreenOrigin();
+    screen.addEventListener("scroll", restoreScreenOrigin);
+    return () => screen.removeEventListener("scroll", restoreScreenOrigin);
+  }, []);
   const [data, setData] = useState<Store>(restore);
   const [page, setPage] = useState<Page>("home");
+  const [intent, setIntent] = useState<RouteIntent>({});
   const [tab, setTab] = useState<Tab>("home");
   const [history, setHistory] = useState<Page[]>([]);
   const [toast, setToast] = useState("");
@@ -3832,8 +3933,16 @@ export default function Prototype() {
     const t = setTimeout(() => setToast(""), 4800);
     return () => clearTimeout(t);
   }, [toast]);
-  const go = (next: Page) => {
+  useEffect(() => {
+    if (!allowedPage(data, page)) {
+      keyboard.hide();
+      setPage("home"); setTab("home"); setHistory([]); setIntent({});
+    }
+  }, [data.home.level, page]);
+  const go = (next: Page, nextIntent: RouteIntent = {}) => {
     keyboard.hide();
+    if (!allowedPage(data, next)) { setToast("This section is available to partner accounts."); return; }
+    setIntent(nextIntent);
     if (next === page) return;
     if (tabs.some((t) => t.id === next)) {
       setTab(next as Tab);
@@ -3843,11 +3952,14 @@ export default function Prototype() {
   };
   const back = () => {
     keyboard.hide();
-    const previous = history.at(-1) || tab;
+    setIntent({});
+    const previous = [...history].reverse().find(p => allowedPage(data, p)) || (allowedPage(data, tab) ? tab : "home");
     setHistory((h) => h.slice(0, -1));
     setPage(previous);
   };
-  const [title, subtitle] = pageInfo[page];
+  const [title, subtitle] = page === "fieldops" && isEntryAccount(data)
+    ? ["Field operations", "System monitoring and alerts"]
+    : pageInfo[page];
   const screens: Record<Page, ReactNode> = {
     home: <HomeScreen />,
     warranty: <WarrantyScreen />,
@@ -3865,8 +3977,9 @@ export default function Prototype() {
     faq: <FAQScreen />,
   };
   return (
-    <AppContext.Provider value={{ data, setData, go, notify: setToast }}>
+    <AppContext.Provider value={{ data, setData, go, intent, notify: setToast }}>
       <div
+        ref={appRoot}
         className="sunpower-app"
         data-build="portal-restoration-v2"
         data-keyboard-open={keyboard.visible}

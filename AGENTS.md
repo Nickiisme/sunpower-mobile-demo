@@ -77,3 +77,25 @@ Use https://nickiisme.github.io/sunpower-mobile-demo/ as the visual reference. P
 ## FAQ and heading behavior (17 November 2026)
 
 Partner resources includes FAQ below Academy. Do not add an intelligent Q&A entrance in this iteration. Page titles and subtitles belong in the scrolling content on all five main tabs; only brand/account chrome and bottom navigation stay fixed.
+
+## Portal homepage behavior (23 November 2026)
+
+Preserve the existing mobile demo visual style while restoring Portal homepage rules. Use Entry/N/A + GB/IT/ES/DE for entry1, other countries for entry2, and Authorized/Premier/Elite for partner. Application access follows the entry1 country/level branch; only admins see user management. Keep homepage account/content fixtures local and explicitly preview-only; never embed production credentials or imply live data. Preserve the two independent purchased-solar/ESS progress tracks, pending-claim lead navigation, profile/notification prompts, country/level content filtering, and date-filterable events. Homepage preview scenarios live under Your account → Homepage preview.
+
+## Compact bottom navigation (23 November 2026)
+
+The user clarified that the excess height is the blank area below tab labels, above the Home indicator. Preserve the original 60px navigation bar and icon/label spacing. On iOS with the keyboard closed, lower app-owned navigation by 16px within the bottom safe-area backdrop; leave protected device chrome untouched. Keep keyboard-open positioning at bottomInset and Android at its reserved navigation edge.
+
+## Account panels (23 November 2026)
+
+Opening profile should focus the close control instead of a text field; show the keyboard only after an explicit field tap. Language opens its own language-only panel. Pin Preview homepage and Save profile actions to a footer outside the scrolling form, keeping them above the keyboard when open. App sheet/overlay layers must stay below the protected runtime keyboard.
+
+When the simulated keyboard is closed, hide its layer after the existing 260ms slide-out so the suggestion row cannot remain visible at the device edge. Keep the keyboard visible immediately when opened; preserve runtime assets, geometry and protected files.
+
+Apply now should stay inside the App: first-time confirmation, local preview success, then a pending-review reminder on repeat taps. Match Portal’s confirmation flow; never silently redirect to Portal or submit real applications. Application state is local and does not upgrade membership.
+
+Entry and N/A accounts show only Home, Warranty and Field Ops tabs. Field Ops is monitoring-only for these accounts; hide installation controls, lead/product routes and homepage lead shortcuts. Authorized/Premier/Elite retain all five tabs.
+
+Homepage preview uses three distinct sections: Account preview (country, level, account type), Membership dashboard (progress, targets, review and content), Messages & notifications (application history and pending notification). Remove Account role from settings, state and application gating; it no longer affects this app.
+
+Prevent native focus from scrolling the outer phone screen container; its scroll origin must stay at zero. Keep scrolling inside MobileScroll or sheet forms. The bottom-nav backdrop must fill only its actual remaining bottom inset, avoiding overflow outside the device screen.
