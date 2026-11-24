@@ -61,6 +61,8 @@ type Page =
   | "news"
   | "faq";
 type Warranty = {
+  certificateState?: "Ready" | "Unavailable" | "Generating";
+  canRecreate?: boolean;
   id: string;
   serial: string;
   owner: string;
@@ -75,7 +77,9 @@ type Warranty = {
   consent: boolean;
   status: "Draft" | "Submitted" | "Completed";
 };
+type LeadStatus = "Pending Claim" | "Claimed" | "Qualified" | "Converted" | "Rejected" | "Disqualified";
 type Lead = {
+  outcomeReason?: string;
   id: string;
   name: string;
   email: string;
@@ -101,6 +105,7 @@ type User = {
   permissions: string[];
 };
 type Request = {
+  kind?: "Price request" | "Replenishment request";
   id: string;
   date: string;
   items: Record<number, number>;
@@ -132,6 +137,7 @@ const defaultHome = (): HomeConfig => ({
 });
 type RouteIntent = { leadStage?: string; editProfile?: boolean };
 type Store = {
+  workflowVersion: number;
   home: HomeConfig;
   warranties: Warranty[];
   leads: Lead[];
@@ -169,6 +175,7 @@ const today = () =>
   }).format(new Date());
 const now = () => new Date().toLocaleString("en-GB");
 const initial = (): Store => ({
+  workflowVersion: 1,
   home: defaultHome(),
   warranties: [
     {
@@ -216,6 +223,7 @@ const initial = (): Store => ({
       consent: false,
       status: "Draft",
     },
+    workflowExamples().warranty,
   ],
   leads: [
     {
@@ -278,6 +286,7 @@ const initial = (): Store => ({
         },
       ],
     },
+    ...workflowExamples().leads,
   ],
   users: [
     {
@@ -350,12 +359,40 @@ const initial = (): Store => ({
     },
   ],
 });
+function workflowExamples() {
+  const leads: Lead[] = ([
+    ["LD-DEMO-REJECTED", "Alex Green", "Rejected", "Opportunity declined by the assigned partner."],
+    ["LD-DEMO-CONVERTED", "Maya Patel", "Converted", "Converted by the connected sales process. This record is read-only."],
+    ["LD-DEMO-DISQUALIFIED", "Leo Brown", "Disqualified", "Project cancelled by the homeowner."],
+  ] as const).map(([id,name,status,outcomeReason]) => ({
+    id,name,status,outcomeReason,email: `${id.toLowerCase()}@example.com`, phone: "+44 0000000000",
+    city: "London", country: "United Kingdom", source: "Website", type: "Residential", owner: "Xin Wang",
+    created: today(), updated: today(), notes: [{time:now(),text:outcomeReason}],
+  }));
+  const warranty: Warranty = {
+    id: "W-DEMO-CERTIFICATE", serial: "SPR-515-0291", owner: "Jamie Example", email: "jamie@example.com",
+    date: "2026-08-20", quantity:12,country:"United Kingdom",city:"London",address:"",postal:"",lead:"",consent:true,
+    status:"Completed",certificateState:"Unavailable",canRecreate:true,
+  };
+  return {leads,warranty};
+}
 function restore(): Store {
   try {
     const value = JSON.parse(localStorage.getItem(KEY) || "null");
-    return value?.version === 2 ? { ...initial(), ...value.data, home: Object.fromEntries(Object.entries(defaultHome()).map(([key, fallback]) => [key, value.data.home?.[key] ?? fallback])) as HomeConfig } : initial();
+    const defaults = initial();
+    const restored: Store = value?.version === 2 ? {
+      ...defaults, ...value.data,
+      home: Object.fromEntries(Object.entries(defaultHome()).map(([key, fallback]) => [key, value.data.home?.[key] ?? fallback])) as HomeConfig,
+    } : defaults;
+    if (value?.data?.workflowVersion !== 1) {
+      const examples = workflowExamples();
+      restored.leads = [...restored.leads, ...examples.leads.filter(l => !restored.leads.some(old => old.id === l.id))];
+      if (!restored.warranties.some(w => w.id === examples.warranty.id)) restored.warranties.push(examples.warranty);
+      restored.workflowVersion = 1;
+    }
+    return restored;
   } catch {
-    return initial();
+    return {...initial(), workflowVersion:0};
   }
 }
 const AppContext = createContext<{
@@ -558,34 +595,33 @@ function Chips({
 }
 function Empty({
   children = "No results match your filters.",
+  title = "No results",
 }: {
   children?: ReactNode;
+  title?: string;
 }) {
   return (
     <div className="empty compact-empty">
       <MagnifyingGlassIcon />
-      <h3>No results</h3>
+      <h3>{title}</h3>
       <p>{children}</p>
     </div>
   );
 }
 function Status({ value }: { value: string }) {
-  return (
-    <span
-      className={
-        "pill " +
-        (/Completed|Qualified|Active|Ready|Normal|Authorized/.test(value)
-          ? "completed"
-          : /Emergency/.test(value)
-            ? "emergency"
-            : /Draft|Pending|Major|No device/.test(value)
-              ? "draft"
-              : "submitted")
-      }
-    >
-      {value}
-    </span>
-  );
+  const tone = ["Completed","Qualified","Converted","Claimed","Active","Ready","Normal","Authorized","In Stock"].includes(value) ? "completed"
+    : ["Rejected","Emergency"].includes(value) ? "emergency"
+    : ["Disqualified","Unavailable","Offline"].includes(value) ? "neutral"
+    : ["Draft","Pending Claim","In Stock soon","In Stock · Allocation"].includes(value) ? "draft"
+    : "submitted";
+  return <span className={`pill ${tone}`}>{value}</span>;
+}
+function WorkflowState({title,children}: {title:string;children:ReactNode}) {
+  return <article className="workflow-state"><span className="record-icon"><FileTextIcon /></span><div><b>{title}</b><p>{children}</p></div></article>;
+}
+function WarrantyProgress({status}:{status:Warranty["status"]}) {
+  const stages = ["Draft","Submitted","Completed"];
+  return <ol className="workflow-progress" aria-label="Warranty progress">{stages.map((step,i) => <li key={step} className={i <= stages.indexOf(status) ? "done" : ""} aria-current={step === status ? "step" : undefined}><span>{i+1}</span>{step}</li>)}</ol>;
 }
 function Back({
   onClick,
@@ -799,18 +835,19 @@ function relativeLeadDate(value: string) {
   return `On ${new Date(value).toLocaleDateString("en-GB")}`;
 }
 function TierCard() {
-  const { data } = useApp();
+  const { data, go } = useApp();
   const h = data.home;
   const highest = h.level === "Elite";
   const next = ({ Entry: "Authorized", Authorized: "Premier", Premier: "Elite" } as Record<string, string>)[h.level] || "Authorized";
   return <article className="hero-card" data-testid="current-tier">
-    <span className="eyebrow">CURRENT TIER · SAMPLE PROGRESS</span>
-    <div className="tier-head"><div className="tier-badge"><RocketIcon /></div><div><h2>{h.level}</h2><p>{highest ? "You’ve reached the highest tier" : `Your next milestone: ${next}`}</p></div></div>
+    <div className="tier-head"><div className="tier-badge"><RocketIcon /></div><div><span className="eyebrow">YOUR MEMBERSHIP</span><h2>{h.level}</h2></div><div className="tier-review-meta"><span className="tier-review-date">Review · {h.reviewDate}</span><span className="tier-next">{highest ? "Highest tier" : `Next: ${next}`}</span></div></div>
+    <div className="home-metrics">
     {([["Purchased solar", h.purchasedKw, h.targetKw, "kW"], ["ESS kits", h.essKits, h.targetKits, "kits"]] as const).map(([label, current, target, unit]) => {
       const percent = target > 0 ? Math.round(Math.max(0, Math.min(100, current / target * 100))) : 0;
-      return <div key={label} className="home-metric"><div className="progress-label"><span>{label}</span><b>{highest ? `${current} ${unit}` : `${percent}%`}</b></div>{!highest && <div className="progress" role="progressbar" aria-label={label} aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100}><i style={{width: `${percent}%`}} /></div>}{!highest && <p>{current} {unit} / {target} {unit} · {Math.max(0, target - current)} remaining</p>}</div>;
+      return <div key={label} className="home-metric"><div className="progress-label"><span>{label}</span><b>{highest ? `${current} ${unit}` : `${percent}%`}</b></div>{!highest && <><div className="progress" role="progressbar" aria-label={label} aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100}><i style={{width: `${percent}%`}} /></div><p><strong>{current}</strong> / {target} {unit}</p></>}</div>;
     })}
-    <div className="home-tier-review">{highest ? "Elite partner" : `Target: ${h.targetKw} kW or ${h.targetKits} ESS kits`}<span>Review · {h.reviewDate}</span></div>
+    </div>
+    <div className="hero-links"><button onClick={() => go("benefits")}>Partner benefits<ChevronRightIcon /></button><button onClick={() => live("dashboard/home")}><DownloadIcon />Certification</button></div>
   </article>;
 }
 function HomeNews({ items, open }: { items: HomeMessage[]; open: (m: HomeMessage) => void }) {
@@ -855,11 +892,10 @@ function HomeScreen() {
   const benefit = visibleHomeMessages(data, "Partner Benefits")[0];
   const closeNotification = () => { setNotification("None"); setAgreement(false); setData(d => ({...d, home: {...d.home, notification: "None"}})); };
   return <section className="content home-content" data-home-role={role || "unmatched"}>
-    <p className="preview-note">Local preview · {data.profile.country} · {data.home.level}</p>
-    {data.home.banner && <article className="home-banner"><span className="eyebrow">TCL SUNPOWER</span>{data.home.bannerTitle && <h2>Power your next opportunity.</h2>}{data.home.bannerExplore && <button onClick={() => live("dashboard/home")}>Explore more <ExternalLinkIcon /></button>}</article>}
+    {data.home.banner && <article className="home-banner"><div><span className="eyebrow">TCL SUNPOWER</span>{data.home.bannerTitle && <h2>Power your next opportunity.</h2>}</div>{data.home.bannerExplore && <button aria-label="Explore more" onClick={() => live("dashboard/home")}><ExternalLinkIcon /></button>}</article>}
     {!isEntryAccount(data) && pending.length > 0 && <button className="home-lead-notice" onClick={() => go("leads", {leadStage: "Pending Claim"})}><span className="record-icon"><PersonIcon /></span><span><b>{pending.length} new {pending.length === 1 ? "lead needs" : "leads need"} your attention</b><small>{latest && relativeLeadDate(latest.created)}</small></span><ChevronRightIcon /></button>}
     {!role && <Section title="Homepage unavailable"><p>No homepage matches this account level. Check your account in Portal.</p><PortalLink path="dashboard/home" /></Section>}
-    {role === "partner" && <><TierCard /><div className="hero-links"><button onClick={() => go("benefits")}>Partner benefits<ChevronRightIcon /></button><button onClick={() => live("dashboard/home")}><DownloadIcon />Certification</button></div></>}
+    {role === "partner" && <TierCard />}
     {role && role !== "partner" && (benefit || (role === "entry1")) && <article className="article-card"><span className="eyebrow">PARTNER BENEFITS</span><h2>{role === "entry1" ? "Become a SunPower partner" : benefit?.title}</h2><p>{role === "entry1" ? "Join the partner program to grow your business with SunPower." : benefit?.body}</p><button className="primary wide" onClick={() => role === "entry1" ? setApplication(data.home.applicationSubmitted ? "pending" : "confirm") : benefit && setMessage(benefit)}>{role === "entry1" ? "Apply now" : "Explore partner benefits"}<ChevronRightIcon /></button></article>}
       <h3 className="section-title">Quick actions</h3>
       <div className="quick-grid">
@@ -957,7 +993,24 @@ function WarrantyScreen() {
   const [from, setFrom] = useState("");
   const [until, setUntil] = useState("");
   const [form, setForm] = useState<Warranty | null>(null);
-  const [detail, setDetail] = useState<Warranty | null>(null);
+  const [detailId, setDetailId] = useState<string | null>(null);
+  const detail = data.warranties.find(w => w.id === detailId) || null;
+  const setDetail = (w: Warranty | null) => setDetailId(w?.id || null);
+  const [detailAction, setDetailAction] = useState<"reminder" | "homeowner" | null>(null);
+  const [homeownerName, setHomeownerName] = useState("");
+  const [homeownerConfirmed, setHomeownerConfirmed] = useState(false);
+  const [actionError, setActionError] = useState("");
+  const [reminderSelection, setReminderSelection] = useState<string[] | null>(null);
+  const [bulkReminderConfirm, setBulkReminderConfirm] = useState(false);
+  const canRemind = (w: Warranty) => w.status === "Submitted" && !!w.email;
+  const reminderCandidates = data.warranties.filter(canRemind);
+  const generatingCertificates = data.warranties.filter(w => w.certificateState === "Generating").map(w => w.id).join(",");
+  useEffect(() => {
+    if (!generatingCertificates) return;
+    const ids = generatingCertificates.split(",");
+    const timer = setTimeout(() => setData(d => ({...d,warranties:d.warranties.map(w => ids.includes(w.id) && w.certificateState === "Generating" ? {...w,certificateState:"Ready"} : w)})),1200);
+    return () => clearTimeout(timer);
+  }, [generatingCertificates]);
   const [bulk, setBulk] = useState(false);
   const [error, setError] = useState("");
   const [pendingDelete, setPendingDelete] = useState(false);
@@ -999,10 +1052,12 @@ function WarrantyScreen() {
   };
   const save = (status: "Draft" | "Submitted") => {
     if (!form) return;
-    if (!form.serial.trim() || !form.date || form.quantity < 1)
+    if (!form.serial.trim() || !form.date || !Number.isInteger(form.quantity) || form.quantity < 1)
       return setError(
         "Enter an installation date, serial number and quantity.",
       );
+    if (form.date > today() || Number.isNaN(Date.parse(form.date))) return setError("Use a valid installation date that is not in the future.");
+    if (form.status === "Submitted" && status === "Draft") return setError("A submitted registration cannot return to Draft.");
     if (
       data.warranties.some(
         (w) =>
@@ -1023,6 +1078,8 @@ function WarrantyScreen() {
     }));
     keyboard.hide();
     setForm(null);
+    setDetail(next);
+    setDetailAction(null);
     notify(
       status === "Draft"
         ? "Draft saved in this preview."
@@ -1203,11 +1260,9 @@ function WarrantyScreen() {
           </p>
         )}
         <div className="form-actions">
-          <button className="outline" onClick={() => save("Draft")}>
-            Save as draft
-          </button>
+          {form.status === "Draft" && <button className="outline" onClick={() => save("Draft")}>Save as draft</button>}
           <button className="primary" onClick={() => save("Submitted")}>
-            Send to homeowner
+            {form.status === "Submitted" ? "Save registration" : "Submit registration"}
           </button>
         </div>
         <p className="preview-note">
@@ -1299,6 +1354,7 @@ function WarrantyScreen() {
             key={w.id}
             onClick={() => {
               setDetail(w);
+              setDetailAction(null); setActionError("");
               setPendingDelete(false);
             }}
           >
@@ -1316,7 +1372,7 @@ function WarrantyScreen() {
           </button>
         ))}
       </div>
-      {!rows.length && <Empty />}
+      {!rows.length && <Empty>{data.warranties.length ? "No registrations match these filters. Reset the filters to see all registrations." : "No registrations yet. Register a warranty to get started."}</Empty>}
       <div className="form-row">
         <button
           className="outline wide"
@@ -1363,6 +1419,16 @@ function WarrantyScreen() {
           Export
         </button>
       </div>
+      <button className="outline wide" disabled={!reminderCandidates.length} onClick={() => {setReminderSelection([]);setBulkReminderConfirm(false);}}><BellIcon />Bulk reminder · {reminderCandidates.length} eligible</button>
+      <AppSheet open={reminderSelection !== null} onOpenChange={open => {if (!open) {setReminderSelection(null);setBulkReminderConfirm(false);}}} title={bulkReminderConfirm ? "Confirm reminders" : "Bulk warranty reminders"} description="Submitted registrations only · no emails are sent"
+        footer={<button className="primary wide" disabled={!reminderSelection?.length} onClick={() => {
+          if (!bulkReminderConfirm) {setBulkReminderConfirm(true);return;}
+          const ids = (reminderSelection || []).filter(id => data.warranties.some(w => w.id === id && canRemind(w)));
+          setData(d => ({...d,reminders:[...d.reminders,...ids.map(id => id+":"+new Date().toISOString())]}));
+          setReminderSelection(null);setBulkReminderConfirm(false);notify(`${ids.length} reminders recorded locally. No emails were sent.`);
+        }}>{bulkReminderConfirm ? "Record reminders locally" : `Review reminders (${reminderSelection?.length || 0})`}</button>}>
+        <div className="sheet-body">{bulkReminderConfirm ? <p>Record a sample reminder for each of the {reminderSelection?.length} selected homeowners?</p> : <><button className="text-btn" onClick={() => setReminderSelection(reminderSelection?.length === reminderCandidates.length ? [] : reminderCandidates.map(w => w.id))}>Select / clear all</button>{reminderCandidates.map(w => <label className="check-row" key={w.id}><input type="checkbox" checked={reminderSelection?.includes(w.id) || false} onChange={e => setReminderSelection(ids => e.target.checked ? [...(ids || []),w.id] : (ids || []).filter(id => id !== w.id))} /><span><b>{w.serial}</b><small>{w.email}</small></span></label>)}</>}</div>
+      </AppSheet>
       <p className="result-count">
         {rows.length} of {data.warranties.length} registrations
       </p>
@@ -1442,10 +1508,24 @@ function WarrantyScreen() {
         }}
         title={detail?.serial || "Warranty details"}
         description="Registration details and available actions."
+        footer={detail && detailAction ? <button className="primary wide" onClick={() => {
+          if (detail.status !== "Submitted") {setDetailAction(null);return;}
+          if (detailAction === "reminder") {
+            setData(d => ({...d,reminders:[...d.reminders,detail.id+":"+new Date().toISOString()]}));
+            setDetailAction(null);notify("Reminder recorded locally. No email was sent.");
+          } else {
+            if (!homeownerName.trim() || !homeownerConfirmed) {setActionError("Enter the sample homeowner name and confirm the information.");return;}
+            setData(d => ({...d,warranties:d.warranties.map(w => w.id === detail.id && w.status === "Submitted" ? {...w,owner:homeownerName.trim(),status:"Completed",certificateState:"Ready"} : w)}));
+            setDetailAction(null);setActionError("");notify("Sample homeowner confirmation completed locally.");
+          }
+        }}>{detailAction === "reminder" ? "Record reminder locally" : "Complete sample registration"}</button> : undefined}
       >
         {detail && (
           <div className="sheet-body">
             <Status value={detail.status} />
+            <WarrantyProgress status={detail.status} />
+            <WorkflowState title={detail.status === "Draft" ? "Registration not submitted" : detail.status === "Submitted" ? "Awaiting homeowner confirmation" : "Registration complete"}>{detail.status === "Draft" ? "Review installation details and submit when ready. Drafts can be edited or deleted." : detail.status === "Submitted" ? "The registration is submitted. The homeowner still needs to confirm their information." : "The completed registration is read-only. Official certificate availability is managed in Partner Portal."}</WorkflowState>
+            {detailAction ? <div className="state-action-panel"><button className="text-btn" onClick={() => {keyboard.hide();setDetailAction(null);setActionError("");}}>Back to registration</button><h3>{detailAction === "reminder" ? "Record homeowner reminder?" : "Sample homeowner confirmation"}</h3><p>{detailAction === "reminder" ? `This records a reminder for ${detail.email} in this browser. No email is sent.` : "This simulates the homeowner’s separate confirmation step. It does not complete a real warranty."}</p>{detailAction === "homeowner" && <><Field label="Sample homeowner name" value={homeownerName} set={setHomeownerName} required /><label className="check-row"><input type="checkbox" checked={homeownerConfirmed} onChange={e => setHomeownerConfirmed(e.target.checked)} /><span>Confirm the sample homeowner information is complete.</span></label></>}{actionError && <p className="form-error" role="alert">{actionError}</p>}</div> : <>
             <dl className="detail-list">
               {[
                 ["Homeowner", detail.owner],
@@ -1467,26 +1547,8 @@ function WarrantyScreen() {
                 Edit registration
               </button>
             )}
-            {detail.status === "Submitted" && (
-              <button
-                className="outline wide"
-                onClick={() => {
-                  setData((d) => ({
-                    ...d,
-                    reminders: [...d.reminders, detail.id + ":" + now()],
-                  }));
-                  notify("Reminder recorded locally. No email was sent.");
-                }}
-              >
-                Record reminder
-              </button>
-            )}
-            {detail.status === "Completed" && (
-              <PortalLink
-                path="warranty/list"
-                label="Download official certificate in portal"
-              />
-            )}
+            {detail.status === "Submitted" && <><button className="outline wide" disabled={!canRemind(detail)} onClick={() => setDetailAction("reminder")}><BellIcon />Record reminder</button><button className="outline wide" onClick={() => {setHomeownerName(detail.owner === "Pending owner" ? "" : detail.owner);setHomeownerConfirmed(false);setActionError("");setDetailAction("homeowner");}}>Preview homeowner confirmation</button>{data.reminders.filter(r => r.startsWith(detail.id+":")).length > 0 && <p className="helper">{data.reminders.filter(r => r.startsWith(detail.id+":")).length} reminder(s) recorded locally.</p>}</>}
+            {detail.status === "Completed" && <><WorkflowState title={detail.certificateState === "Generating" ? "Certificate recreation in progress" : detail.certificateState === "Unavailable" ? "Certificate not available" : "Certificate ready in preview"}>{detail.certificateState === "Generating" ? "The local preview is processing the recreation request." : detail.certificateState === "Unavailable" ? "The completed registration has no downloadable certificate yet." : "Download the official PDF through Partner Portal. No official PDF is generated by this preview."}</WorkflowState>{detail.certificateState !== "Unavailable" && detail.certificateState !== "Generating" && <PortalLink path="warranty/list" label="Download official certificate in Portal" />}{detail.canRecreate && detail.certificateState === "Unavailable" && <button className="outline wide" onClick={() => {setData(d => ({...d,warranties:d.warranties.map(w => w.id === detail.id ? {...w,certificateState:"Generating"} : w)}));notify("Certificate recreation started locally.");}}>Recreate certificate preview</button>}</>}
             {detail.status === "Draft" &&
               (pendingDelete ? (
                 <div className="delete-confirm">
@@ -1517,6 +1579,7 @@ function WarrantyScreen() {
                   Delete draft
                 </button>
               ))}
+            </>}
           </div>
         )}
       </AppSheet>
@@ -1535,9 +1598,13 @@ function LeadsScreen() {
   const [until, setUntil] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const [note, setNote] = useState("");
+  const [action, setAction] = useState<"accept" | "reject" | "qualify" | "disqualify" | "edit" | null>(null);
+  const [reason, setReason] = useState("");
+  const [actionError, setActionError] = useState("");
+  const [contact, setContact] = useState({name:"",email:"",phone:"",city:""});
   const [settings, setSettings] = useState(false);
   const [policy, setPolicy] = useState(data.policy);
-  const [asSales, setAsSales] = useState(false);
+  const [asSales, setAsSales] = useState(data.home.accountType !== "Admin");
   const lead = data.leads.find((l) => l.id === selected);
   const rows = data.leads.filter(
     (l) =>
@@ -1571,13 +1638,13 @@ function LeadsScreen() {
     }));
     notify(text);
   };
-  const canWork =
-    !!lead && (!asSales || !lead.owner || lead.owner === "Xin Wang");
+  const isActive = !!lead && ["Claimed","Qualified"].includes(lead.status);
+  const canWork = !!lead && (!asSales || !lead.owner || lead.owner === data.profile.name);
   const canAssign =
-    !!lead &&
+    isActive &&
     (!asSales ||
       (data.policy.permission === "Owner & admin" &&
-        lead.owner === "Xin Wang"));
+        lead?.owner === data.profile.name));
   return (
     <section className="content">
       <Search
@@ -1590,7 +1657,7 @@ function LeadsScreen() {
           <b>
             {
               data.leads.filter(
-                (l) => !["Qualified", "Rejected"].includes(l.status),
+                (l) => ["Pending Claim", "Claimed", "Qualified"].includes(l.status),
               ).length
             }
           </b>
@@ -1618,7 +1685,9 @@ function LeadsScreen() {
             "Pending Claim",
             "Claimed",
             "Qualified",
+            "Converted",
             "Rejected",
+            "Disqualified",
           ]}
         />
         <div className="form-row">
@@ -1659,6 +1728,7 @@ function LeadsScreen() {
           Reset all filters
         </button>
       </details>
+      <Chips options={["All stages","Pending Claim","Claimed","Qualified","Converted","Rejected","Disqualified"]} value={stage} set={setStage} />
       <div className="section-row">
         <h3 className="section-title">Lead inbox</h3>
         <button
@@ -1710,7 +1780,7 @@ function LeadsScreen() {
             className="lead"
             key={l.id}
             onClick={() => {
-              setSelected(l.id);
+              setSelected(l.id); setAction(null); setActionError(""); setReason("");
               setNote("");
             }}
           >
@@ -1766,16 +1836,33 @@ function LeadsScreen() {
         onOpenChange={(open) => {
           if (!open) {
             keyboard.hide();
-            setSelected(null);
+            setSelected(null); setAction(null); setActionError("");
           }
         }}
-        title={lead?.name || "Lead details"}
+        title={action ? ({accept:"Accept lead",reject:"Reject lead",qualify:"Qualify lead",disqualify:"Disqualify lead",edit:"Edit lead"}[action]) : lead?.name || "Lead details"}
+        footer={lead && action ? <button className="primary wide" disabled={!canWork} onClick={() => {
+          if (!canWork) return;
+          const transitions: Record<string,string[]> = {"Pending Claim":["accept","reject"],Claimed:["qualify","disqualify","edit"],Qualified:["disqualify","edit"]};
+          if (!transitions[lead.status]?.includes(action)) {setActionError("This action is no longer available for the current status.");return;}
+          if (action === "disqualify" && !reason.trim()) {setActionError("Enter a reason for disqualifying this lead.");return;}
+          if (action === "edit") {
+            if (!contact.name.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact.email)) {setActionError("Enter a name and valid email.");return;}
+            update(contact,"Contact details updated locally");
+          } else {
+            const status = ({accept:"Claimed",reject:"Rejected",qualify:"Qualified",disqualify:"Disqualified"} as const)[action];
+            update({status,...(action === "accept" ? {owner:lead.owner || data.profile.name} : {}),...(reason.trim() ? {outcomeReason:reason.trim()} : {})}, `Lead ${status.toLowerCase()} locally${reason.trim() ? ": "+reason.trim() : ""}`);
+          }
+          keyboard.hide();setAction(null);setReason("");setActionError("");
+        }}>{action === "edit" ? "Save changes" : "Confirm " + ({accept:"acceptance",reject:"rejection",qualify:"qualification",disqualify:"disqualification"}[action])}</button> : undefined}
         description={lead?.id}
         snap={0.9}
       >
         {lead && (
           <div className="sheet-body">
             <Status value={lead.status} />
+            <WorkflowState title={lead.status}>{({"Pending Claim":"Accept or reject this opportunity before starting follow-up.",Claimed:"Follow up with the homeowner, update the contact details, then qualify or disqualify the opportunity.",Qualified:"The opportunity is qualified. Keep the contact information up to date or disqualify it if circumstances change.",Converted:"This opportunity has been converted by the sales process. It is read-only.",Rejected:"This opportunity was declined and is read-only.",Disqualified:"This opportunity is closed as disqualified and is read-only."} as Record<string,string>)[lead.status] || "Review the lead details in Partner Portal."}</WorkflowState>
+            {action ? <div className="state-action-panel"><button className="text-btn" onClick={() => {keyboard.hide();setAction(null);setActionError("");}}>Back to lead</button><p className="preview-note">Changes apply to this local preview only.</p>{action === "edit" ? <>{([['name','Contact name'],['email','Contact email'],['phone','Contact phone'],['city','Contact city']] as const).map(([key,label]) => <Field key={key} label={label} value={contact[key]} set={value => setContact(c => ({...c,[key]:value}))} />)}</> : <><p>{action === "accept" ? "Accept this lead and begin follow-up?" : action === "reject" ? "Reject this opportunity? It will no longer be available for follow-up." : action === "qualify" ? "Confirm that the opportunity has been assessed and qualifies for follow-up." : "Disqualify and close this opportunity?"}</p>{action !== "accept" && <Field label={action === "disqualify" ? "Disqualification reason" : action === "reject" ? "Rejection note (optional)" : "Qualification note (optional)"} value={reason} set={setReason} required={action === "disqualify"} />}</>}{actionError && <p className="form-error" role="alert">{actionError}</p>}</div> : <>
+            {lead.outcomeReason && <p className="helper">Outcome: {lead.outcomeReason}</p>}
             <dl className="detail-list">
               {[
                 ["Email", lead.email],
@@ -1804,42 +1891,10 @@ function LeadsScreen() {
                 Call
               </a>
             </div>
-            {lead.status === "Pending Claim" && (
-              <div className="form-row">
-                <button
-                  className="primary wide"
-                  disabled={!canWork}
-                  onClick={() =>
-                    update(
-                      { status: "Claimed", owner: lead.owner || "Xin Wang" },
-                      "Lead accepted",
-                    )
-                  }
-                >
-                  Accept lead
-                </button>
-                <button
-                  className="outline wide"
-                  disabled={!canWork}
-                  onClick={() =>
-                    update({ status: "Rejected" }, "Lead rejected")
-                  }
-                >
-                  Reject
-                </button>
-              </div>
-            )}
-            {lead.status === "Claimed" && (
-              <button
-                className="primary wide"
-                disabled={!canWork}
-                onClick={() =>
-                  update({ status: "Qualified" }, "Lead qualified")
-                }
-              >
-                Mark as qualified
-              </button>
-            )}
+            {lead.status === "Pending Claim" && <div className="form-row"><button className="primary wide" disabled={!canWork} onClick={() => {setReason("");setAction("accept");}}>Accept lead</button><button className="outline wide" disabled={!canWork} onClick={() => {setReason("");setAction("reject");}}>Reject</button></div>}
+            {isActive && <><button className="outline wide" disabled={!canWork} onClick={() => {setContact({name:lead.name,email:lead.email,phone:lead.phone,city:lead.city});setAction("edit");}}>Edit contact details</button>{lead.status === "Claimed" && <button className="primary wide" disabled={!canWork} onClick={() => {setReason("");setAction("qualify");}}>Mark as qualified</button>}<button className="danger-button" disabled={!canWork} onClick={() => {setReason("");setAction("disqualify");}}>Disqualify lead</button></>}
+            {!canWork && <p className="helper">Only the assigned owner or a partner admin can update this lead.</p>}
+            {isActive && <>
             <Select
               label="Reassign to"
               disabled={!canAssign}
@@ -1874,7 +1929,7 @@ function LeadsScreen() {
             </label>
             <button
               className="primary wide"
-              disabled={!note.trim() || !canWork}
+              disabled={!note.trim() || !canWork || !isActive}
               onClick={() => {
                 update({}, note.trim());
                 setNote("");
@@ -1883,6 +1938,7 @@ function LeadsScreen() {
             >
               Save follow-up
             </button>
+            </>}
             <h3 className="section-title">Activity history</h3>
             <div className="timeline">
               {lead.notes.map((n, i) => (
@@ -1892,6 +1948,7 @@ function LeadsScreen() {
                 </article>
               ))}
             </div>
+            </>}
           </div>
         )}
       </AppSheet>
@@ -2150,6 +2207,28 @@ const products = [
     code: "",
   },
 ];
+function ProductAvailability({stock}:{stock:string}) {
+  return <WorkflowState title={stock}>{stock === "In Stock soon" ? "Currently unavailable. Submit a replenishment request; this does not reserve stock or confirm a delivery date." : stock.includes("Allocation") ? "Stock is subject to allocation. Submit a price request for availability and allocation confirmation." : "Available in this sample catalogue. Add a quantity to request pricing; availability and price still require confirmation."}</WorkflowState>;
+}
+function ReplenishmentSheet({product,initialDate,initialUnits,onClose}:{product:(typeof products)[number] | undefined;initialDate:string;initialUnits:number;onClose:()=>void}) {
+  const {setData,notify} = useApp();
+  const [units,setUnits] = useState(String(initialUnits));
+  const [delivery,setDelivery] = useState(initialDate);
+  const [note,setNote] = useState("");
+  const [error,setError] = useState("");
+  useEffect(() => {if(product) {setUnits(String(initialUnits));setDelivery(initialDate);setNote("");setError("");}},[product?.id,initialUnits,initialDate]);
+  return <AppSheet open={!!product} onOpenChange={open => {if(!open)onClose();}} title="Request replenishment" description="Local preview · no request is sent to SunPower"
+    footer={<button className="primary wide" onClick={() => {
+      if (!product || product.stock !== "In Stock soon") return;
+      const quantity=Number(units);
+      if (!Number.isInteger(quantity) || quantity < 1) {setError("Enter a positive whole quantity.");return;}
+      if (!delivery || delivery < today()) {setError("Choose today or a future requested delivery date.");return;}
+      const r:Request={id:"RR-"+Date.now().toString().slice(-8),kind:"Replenishment request",date:today(),items:{[product.id]:quantity},status:"Submitted",delivery,note};
+      setData(d => ({...d,requests:[r,...d.requests]}));onClose();notify("Replenishment request saved locally. No request was sent.");
+    }}>Submit replenishment request</button>}>
+    {product && <div className="sheet-body"><h3>{product.model}</h3><ProductAvailability stock={product.stock}/><Field label="Requested pallets / kits" type="number" value={units} set={setUnits} required /><Field label="Requested delivery date" type="date" value={delivery} set={setDelivery} required /><Field label="Request notes" value={note} set={setNote}/>{error && <p className="form-error" role="alert">{error}</p>}<p className="helper">One selected unit contains {product.pallet} {product.pallet === 1 && product.category === "Storage" ? "kit" : "pieces"}. Delivery depends on replenishment confirmation.</p></div>}
+  </AppSheet>;
+}
 function ProductsScreen() {
   const { data, setData, notify } = useApp();
   const [query, setQuery] = useState("");
@@ -2162,6 +2241,18 @@ function ProductsScreen() {
   const [delivery, setDelivery] = useState(today());
   const [note, setNote] = useState("");
   const [request, setRequest] = useState<Request | null>(null);
+  const [requestKind,setRequestKind] = useState("All requests");
+  const [replenishment,setReplenishment] = useState<number | null>(null);
+  const [confirmRequest,setConfirmRequest] = useState(false);
+  const [requestError,setRequestError] = useState("");
+  const filteredRequests = data.requests.filter(r => requestKind === "All requests" || (r.kind || "Price request") === requestKind);
+  const validCart = Object.entries(data.cart).filter(([,qty]) => qty > 0).every(([id,qty]) => Number.isInteger(qty) && products.some(p => p.id === Number(id) && p.stock !== "In Stock soon"));
+  const submitPriceRequest = () => {
+    if (!count || !validCart || !delivery || delivery < today()) {setConfirmRequest(false);setRequestError("Check the quantity, availability and requested delivery date.");return;}
+    const r:Request = {id:"PR-"+Date.now().toString().slice(-8),kind:"Price request",date:today(),items:Object.fromEntries(Object.entries(data.cart).filter(([,qty]) => qty > 0)),status:"Submitted",delivery,note};
+    setData(d => ({...d,requests:[r,...d.requests],cart:{}}));setConfirmRequest(false);setRequest(r);setView("requests");
+    notify("Price request saved locally. No request was sent to SunPower.");
+  };
   const count = Object.values(data.cart).reduce((a, b) => a + b, 0);
   const items = products.filter(
     (p) =>
@@ -2176,7 +2267,12 @@ function ProductsScreen() {
       cart: { ...d.cart, [id]: Math.max(0, (d.cart[id] || 0) + delta) },
     }));
   const add = (id: number) => {
-    change(id, quantity[id] || 1);
+    const p=products.find(p => p.id === id);
+    if (!p) return;
+    if (p.stock === "In Stock soon") {setDetail(null);setReplenishment(id);return;}
+    const qty=quantity[id] || 1;
+    if (!Number.isInteger(qty) || qty < 1) return notify("Select a positive whole quantity.");
+    change(id, qty);
     notify("Added to request cart.");
   };
   if (view === "requests")
@@ -2199,8 +2295,9 @@ function ProductsScreen() {
           </span>
         </div>
         <h3 className="section-title">Request history</h3>
-        {data.requests.length ? (
-          data.requests.map((r) => (
+        <Chips options={["All requests","Price request","Replenishment request"]} value={requestKind} set={setRequestKind} />
+        {filteredRequests.length ? (
+          filteredRequests.map((r) => (
             <button
               className="order-card"
               key={r.id}
@@ -2211,7 +2308,7 @@ function ProductsScreen() {
               </span>
               <span className="order-main">
                 <b>{r.id}</b>
-                <small>{r.date}</small>
+                <small>{r.kind || "Price request"} · {r.date}</small>
                 <p>
                   {
                     Object.keys(r.items).filter((id) => r.items[Number(id)] > 0)
@@ -2225,7 +2322,7 @@ function ProductsScreen() {
             </button>
           ))
         ) : (
-          <Empty>No price requests in this preview yet.</Empty>
+          <Empty title={data.requests.length ? "No matching requests" : "No submitted requests"}>{data.requests.length ? "Select All requests to see the full history." : "Add available products to the cart for pricing, or request replenishment for unavailable products."}</Empty>
         )}
         <PortalLink path="products/list" label="View live submitted requests" />
         <AppSheet
@@ -2234,11 +2331,13 @@ function ProductsScreen() {
             if (!o) setRequest(null);
           }}
           title={request?.id || "Request details"}
-          description="Local request · Pricing awaits confirmation"
+          description="Local preview request · no order or reservation"
         >
           {request && (
             <div className="sheet-body">
               <Status value={request.status} />
+              <WorkflowState title={(request.kind || "Price request") + " saved"}>{request.kind === "Replenishment request" ? "Awaiting replenishment confirmation in a live workflow. This sample request does not reserve stock." : "Awaiting pricing and availability confirmation in a live workflow. This sample request is not an order."}</WorkflowState>
+              <p className="preview-note">Saved in this browser only. No request was sent to SunPower.</p>
               <p>Requested delivery: {request.delivery}</p>
               {products
                 .filter((p) => request.items[p.id] > 0)
@@ -2291,7 +2390,7 @@ function ProductsScreen() {
         <Back label="Continue shopping" onClick={() => setView("catalog")} />
         <h2 className="panel-title">Request cart · {count} pallets / kits</h2>
         {!count ? (
-          <Empty>Add a product to start a price request.</Empty>
+          <Empty title="Your request cart is empty">Add an available product to start a price request.</Empty>
         ) : (
           <>
             {products
@@ -2325,6 +2424,7 @@ function ProductsScreen() {
                   </div>
                 </article>
               ))}
+            {!validCart && <p className="form-error" role="alert">Some cart items are unavailable or have an invalid quantity. Remove them before submitting a price request.</p>}
             <Section title="Price request details">
               <Field
                 label="Expected delivery date"
@@ -2344,32 +2444,15 @@ function ProductsScreen() {
                 confirmation.
               </p>
             </Section>
-            <button
-              className="primary wide"
-              onClick={() => {
-                if (!delivery || delivery < today())
-                  return notify("Select today or a future delivery date.");
-                const r = {
-                  id: "PR-" + Date.now().toString().slice(-8),
-                  date: today(),
-                  items: { ...data.cart },
-                  status: "Submitted",
-                  delivery,
-                  note,
-                };
-                setData((d) => ({
-                  ...d,
-                  requests: [r, ...d.requests],
-                  cart: {},
-                }));
-                setView("requests");
-                notify(
-                  "Price request saved locally. No request was sent to SunPower.",
-                );
-              }}
-            >
-              Submit price request
-            </button>
+            {requestError && <p className="form-error" role="alert">{requestError}</p>}
+            <button className="primary wide" disabled={!validCart} onClick={() => {
+              if (!delivery || delivery < today()) {setRequestError("Select today or a future delivery date.");return;}
+              setRequestError("");setConfirmRequest(true);
+            }}>Review price request</button>
+            <AppSheet open={confirmRequest} onOpenChange={setConfirmRequest} title="Confirm price request" description="Local preview · no order or payment"
+              footer={<button className="primary wide" onClick={submitPriceRequest}>Submit price request</button>}>
+              <div className="sheet-body"><WorkflowState title="Review before submitting">{count} pallets / kits across {products.filter(p => data.cart[p.id] > 0).length} products. Requested delivery: {delivery}.</WorkflowState>{products.filter(p => data.cart[p.id] > 0).map(p => <p key={p.id}><b>{p.model}</b> · {data.cart[p.id]} × {p.pallet} {p.pallet === 1 && p.category === "Storage" ? "KIT" : "pcs"}{p.stock.includes("Allocation") && " · Allocation confirmation required"}</p>)}<p>This records a sample request in your browser. Pricing and stock are not confirmed.</p></div>
+            </AppSheet>
             <p className="preview-note">
               Local preview · No purchase or payment is made.
             </p>
@@ -2447,7 +2530,7 @@ function ProductsScreen() {
               onClick={() => setDetail(p.id)}
             >
               <span>SUNPOWER</span>
-              <em>{p.stock.includes("soon") ? "SOON" : "IN STOCK"}</em>
+              <em className={p.stock.includes("soon") ? "stock-soon" : p.stock.includes("Allocation") ? "stock-allocation" : ""}>{p.stock.includes("soon") ? "SOON" : p.stock.includes("Allocation") ? "ALLOCATION" : "IN STOCK"}</em>
               {p.img ? (
                 <img src={p.img} alt={p.name} />
               ) : (
@@ -2489,7 +2572,8 @@ function ProductsScreen() {
           </article>
         ))}
       </div>
-      {!items.length && <Empty />}
+      {!items.length && <Empty>No products match the current search and availability filters.</Empty>}
+      <ReplenishmentSheet product={products.find(p => p.id === replenishment)} initialDate={date} initialUnits={replenishment === null ? 1 : quantity[replenishment] || 1} onClose={() => setReplenishment(null)} />
       <PortalLink path="products/list" />
       <AppSheet
         open={!!product}
@@ -2510,6 +2594,7 @@ function ProductsScreen() {
               />
             )}
             <Status value={product.stock} />
+            <ProductAvailability stock={product.stock} />
             <h3>Product overview</h3>
             <p>{product.meta}</p>
             <dl className="detail-list">
@@ -2548,7 +2633,7 @@ function ProductsScreen() {
             </dl>
             <button className="primary wide" onClick={() => add(product.id)}>
               <PlusIcon />
-              Add to cart
+              {product.stock === "In Stock soon" ? "Request replenishment" : "Add to request cart"}
             </button>
             <h3>Downloads & support files</h3>
             <MenuRow
@@ -3881,7 +3966,7 @@ function FAQScreen() {
 }
 
 const pageInfo: Record<Page, [string, string]> = {
-  home: ["Good morning, Xin", "Here’s your partner overview"],
+  home: ["Good morning, Xin", ""],
   warranty: ["Warranty", "Manage your registrations"],
   leads: ["Leads", "New solar opportunities"],
   products: ["Products", "Build your next solar project"],
@@ -3993,7 +4078,7 @@ export default function Prototype() {
           </button>
         )}
         <h1>{title}</h1>
-        <p>{subtitle}</p>
+        {subtitle && <p>{subtitle}</p>}
       </div>
 </section>{screens[page]}</main>
         </MobileScroll>

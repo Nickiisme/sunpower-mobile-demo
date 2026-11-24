@@ -99,3 +99,17 @@ Entry and N/A accounts show only Home, Warranty and Field Ops tabs. Field Ops is
 Homepage preview uses three distinct sections: Account preview (country, level, account type), Membership dashboard (progress, targets, review and content), Messages & notifications (application history and pending notification). Remove Account role from settings, state and application gating; it no longer affects this app.
 
 Prevent native focus from scrolling the outer phone screen container; its scroll origin must stay at zero. Keep scrolling inside MobileScroll or sheet forms. The bottom-nav backdrop must fill only its actual remaining bottom inset, avoiding overflow outside the device screen.
+
+## Workflow state coverage (24 November 2026)
+
+Improve Warranty, Leads and Products through normal pages and actions, not additional Preview settings. Warranty uses Draft/Submitted/Completed, with separate certificate availability and explicit local-only homeowner/reminder flows. Lead visible states include Pending Claim, Claimed, Qualified, Converted, Rejected and Disqualified; final states are read-only, and rejection/qualification/disqualification use confirmation steps. Products distinguish price requests from replenishment requests for In Stock soon; allocation requires confirmation. Keep all submissions local and clearly labeled. News carousel track width must be the viewport width so cards and automatic advances share the same geometry.
+
+## Homepage visual hierarchy (24 November 2026)
+
+Avoid stacking large blue cards on Home. Keep the promotional banner compact and use a white membership dashboard with two side-by-side progress tracks and integrated benefit/certificate links. Retain both independent progress values and existing homepage visibility rules. Product catalogue buttons use the consistent label Add for all stock states; their actions still branch to price requests or replenishment based on availability.
+
+Membership cards omit Sample, remaining amounts, and the upgrade explanation. Show the Review date at the top right, preserving the current/target totals and progress percentages.
+
+Use the compact label Next: [tier] directly below the Review date in the right-aligned membership header. Elite shows Highest tier.
+
+Home omits the greeting subtitle and the Local preview/country/level line above the promotional banner. Preserve local-only explanations on submission flows.
